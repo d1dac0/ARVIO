@@ -1,0 +1,124 @@
+name: Fork release
+
+# Builds a signed sideload APK from this fork and publishes it as a GitHub
+# release so the in-app updater (BuildConfig.GITHUB_OWNER/GITHUB_REPO) and
+# Obtainium can pick it up. The APK is signed with the fork's own keystore, so
+# it updates fork builds in place - it cannot update an installation signed by
+# the upstream release key or by Google Play.
+#
+# Required repository secrets:
+#   KEYSTORE_BASE64      base64 of arvio-release.keystore (single line)
+#   KEYSTORE_PASSWORD    keystore password
+#   KEY_ALIAS            key alias inside the keystore
+#   KEY_PASSWORD         key password
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-release
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Build signed APK and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Validate signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          : "${KEYSTORE_BASE64:?Missing KEYSTORE_BASE64 repository secret}"
+          : "${KEYSTORE_PASSWORD:?Missing KEYSTORE_PASSWORD repository secret}"
+          : "${KEY_ALIAS:?Missing KEY_ALIAS repository secret}"
+          : "${KEY_PASSWORD:?Missing KEY_PASSWORD repository secret}"
+
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          BASE_CODE=$(sed -n 's/.*versionCode = providers.*?: \([0-9]\+\).*/\1/p' app/build.gradle.kts | head -n1)
+          BASE_NAME=$(sed -n 's/.*versionName = providers.*?: "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n1)
+          : "${BASE_CODE:?Could not read base versionCode from app/build.gradle.kts}"
+          : "${BASE_NAME:?Could not read base versionName from app/build.gradle.kts}"
+
+          # Every run must be a strictly higher version so devices accept the update.
+          VERSION_CODE=$((BASE_CODE + GITHUB_RUN_NUMBER))
+          VERSION_NAME="${BASE_NAME}-fork.${GITHUB_RUN_NUMBER}"
+          echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "Building $VERSION_NAME (versionCode $VERSION_CODE)"
+
+      - name: Prepare production signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/arvio-release.keystore"
+          printf '%s\n' \
+            "storeFile=$GITHUB_WORKSPACE/arvio-release.keystore" \
+            "storePassword=$KEYSTORE_PASSWORD" \
+            "keyAlias=$KEY_ALIAS" \
+            "keyPassword=$KEY_PASSWORD" \
+            > keystore.properties
+
+      - name: Build signed release APK
+        env:
+          # Optional: supply real integration credentials as repository secrets and
+          # they take priority over the placeholders in secrets.defaults.properties.
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
+        run: |
+          ./gradlew assembleSideloadRelease --no-daemon \
+            -ParvioVersionCode=${{ steps.version.outputs.code }} \
+            -ParvioVersionName=${{ steps.version.outputs.name }} \
+            -ParvioAllowMissingIntegrations=true
+
+      - name: Verify signing certificate
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/sideload/release/*.apk)
+          test "$(echo "$APK" | wc -l)" -eq 1 || { echo "Expected exactly one APK, got:"; echo "$APK"; exit 1; }
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)
+          "$APKSIGNER" verify --print-certs "$APK" | grep -E 'SHA-256|DN'
+          mkdir -p dist
+          cp "$APK" "dist/ARVIO-${{ steps.version.outputs.name }}-sideload-release.apk"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NOTES=$(git log -1 --pretty=%B)
+          gh release create "${{ steps.version.outputs.tag }}" \
+            dist/ARVIO-${{ steps.version.outputs.name }}-sideload-release.apk \
+            --title "ARVIO ${{ steps.version.outputs.name }}" \
+            --notes "$NOTES" \
+            --latest

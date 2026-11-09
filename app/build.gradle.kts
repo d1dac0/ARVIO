@@ -73,9 +73,13 @@ android {
         // Fire TV devices can be as low as Android 7.1 (API 25) or lower depending on model/OS.
         minSdk = 23
         targetSdk = 36
-        versionCode = 322
-        versionName = "2.3.1"
-        buildConfigField("String", "GITHUB_OWNER", "\"ProdigyV21\"")
+        // Fork builds override these with -ParvioVersionCode/-ParvioVersionName so every
+        // published release is strictly newer than the installed build (see
+        // .github/workflows/fork-release.yml). Defaults keep upstream parity.
+        versionCode = providers.gradleProperty("arvioVersionCode").orNull?.toIntOrNull() ?: 322
+        versionName = providers.gradleProperty("arvioVersionName").orNull ?: "2.3.1"
+        // In-app self-update reads the latest GitHub release from this repo.
+        buildConfigField("String", "GITHUB_OWNER", "\"d1dac0\"")
         buildConfigField("String", "GITHUB_REPO", "\"ARVIO\"")
         buildConfigField("Boolean", "FEATURE_PLUGINS_ENABLED", "false")
         buildConfigField("Boolean", "PARTNER_MANAGEMENT_ENABLED", (providers.gradleProperty("partnerManagement").orNull == "true").toString())
@@ -589,13 +593,28 @@ fun escapeBuildConfigString(value: String): String =
 
 val validateReleaseCloudSecrets = tasks.register("validateReleaseCloudSecrets") {
     doLast {
+        // Fork builds may opt out of the integration-credential gate: the APK then
+        // ships with the placeholder Telegram/Trakt values from
+        // secrets.defaults.properties and those integrations stay disabled.
+        val allowMissingIntegrations = providers.gradleProperty("arvioAllowMissingIntegrations")
+            .orNull
+            ?.toBooleanStrictOrNull() == true
+        fun requireIntegration(condition: Boolean, message: () -> String) {
+            if (condition) return
+            if (allowMissingIntegrations) {
+                logger.warn("WARNING: ${message()} (allowed by arvioAllowMissingIntegrations)")
+            } else {
+                throw GradleException(message())
+            }
+        }
+
         val appAnonKey = localSecretValue("APP_ANON_KEY").ifBlank { localSecretValue("SUPABASE_ANON_KEY") }
         val supabaseUrl = localSecretValue("SUPABASE_URL")
         val traktClientId = localSecretValue("TRAKT_CLIENT_ID")
         val traktClientSecret = localSecretValue("TRAKT_CLIENT_SECRET")
         val telegramApiId = localSecretValue("TELEGRAM_API_ID").toIntOrNull() ?: 0
         val telegramApiHash = localSecretValue("TELEGRAM_API_HASH")
-        require(telegramApiId > 0 && telegramApiHash.matches(Regex("[a-fA-F0-9]{32}"))) {
+        requireIntegration(telegramApiId > 0 && telegramApiHash.matches(Regex("[a-fA-F0-9]{32}"))) {
             "Release builds require valid TELEGRAM_API_ID and TELEGRAM_API_HASH values. " +
                 "Refusing to ship an official build with Telegram disabled."
         }
@@ -616,7 +635,7 @@ val validateReleaseCloudSecrets = tasks.register("validateReleaseCloudSecrets") 
         ) {
             "Release builds require a real APP_ANON_KEY in secrets.properties, Gradle properties, or the environment."
         }
-        require(
+        requireIntegration(
             traktClientId.length > 20 &&
                 !traktClientId.startsWith("your-", ignoreCase = true) &&
                 traktClientSecret.length > 20 &&

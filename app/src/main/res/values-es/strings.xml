@@ -92,6 +92,10 @@
     <string name="finding_sources">Buscando fuentes…</string>
     <string name="available_sources">Fuentes disponibles</string>
     <string name="sources_available">fuentes disponibles</string>
+    <string name="stream_filter_sources">Filtrar fuentes</string>
+    <string name="stream_filter_hint">Filtrar por nombre, p. ej. lat</string>
+    <string name="stream_filter_clear">Borrar filtro</string>
+    <string name="stream_filter_showing">Mostrando %1$d de %2$d</string>
 
     <!-- Actions -->
     <string name="close">Cerrar</string>

@@ -99,6 +99,10 @@
     <string name="finding_sources">Finding sources…</string>
     <string name="available_sources">Available Sources</string>
     <string name="sources_available">sources available</string>
+    <string name="stream_filter_sources">Filter sources</string>
+    <string name="stream_filter_hint">Filter by name, e.g. lat</string>
+    <string name="stream_filter_clear">Clear filter</string>
+    <string name="stream_filter_showing">Showing %1$d of %2$d</string>
 
     <!-- Actions -->
     <string name="close">Close</string>

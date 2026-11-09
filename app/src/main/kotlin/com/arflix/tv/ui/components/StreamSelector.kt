@@ -54,10 +54,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.History
@@ -86,6 +89,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -397,7 +401,11 @@ fun StreamSelector(
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var focusedFilterIndex by remember { mutableIntStateOf(0) }
     var selectedFilterIndex by remember { mutableIntStateOf(0) }
-    var focusZone by remember { mutableStateOf("streams") } // "streams" or "addons"
+    var focusZone by remember { mutableStateOf("streams") } // "streams", "addons" or "filter"
+    // Free-text filter over the listed releases. "lat" narrows the list to names containing
+    // "lat", which is how Latino-audio torrents are usually tagged.
+    var sourceQuery by remember { mutableStateOf("") }
+    var showSourceFilterDialog by remember { mutableStateOf(false) }
     val listState = rememberTvLazyListState()
     val addonListState = rememberTvLazyListState()
     val focusRequester = remember { FocusRequester() }
@@ -423,6 +431,8 @@ fun StreamSelector(
             focusedFilterIndex = 0
             selectedFilterIndex = 0
             focusZone = "streams"
+            sourceQuery = ""
+            showSourceFilterDialog = false
             if (!isMobile) {
                 kotlinx.coroutines.delay(50)
                 runCatching { focusRequester.requestFocus() }
@@ -509,12 +519,13 @@ fun StreamSelector(
         }
     }
 
-    // Filter streams by selected tab
+    // Filter streams by selected tab, the quality/debrid chips and the name query.
     val filteredPresentations = remember(
         orderedPresentations,
         selectedTabIndex,
         selectedFilterIndex,
-        addonTabs
+        addonTabs,
+        sourceQuery
     ) {
         val selectedFilter = sourceFilters.getOrNull(selectedFilterIndex)?.label ?: "All"
         val addonFiltered = if (selectedTabIndex == 0) {
@@ -525,7 +536,9 @@ fun StreamSelector(
                 sourceTabId(it.stream) == selectedAddonId
             }
         }
-        addonFiltered.filter { sourceFilterMatches(it, selectedFilter) }
+        addonFiltered
+            .filter { sourceFilterMatches(it, selectedFilter) }
+            .filter { sourceMatchesQuery(it.stream, sourceQuery) }
     }
 
     // Group streams by addon for display
@@ -678,28 +691,35 @@ fun StreamSelector(
                                 true
                             }
                             Key.DirectionUp -> {
-                                if (focusZone == "addons") {
-                                    if (focusedTabIndex > 0) {
-                                        focusedTabIndex--
-                                        selectedTabIndex = focusedTabIndex  // Immediately filter on focus
-                                        resetStreamFocus()
+                                when {
+                                    focusZone == "addons" -> {
+                                        if (focusedTabIndex > 0) {
+                                            focusedTabIndex--
+                                            selectedTabIndex = focusedTabIndex  // Immediately filter on focus
+                                            resetStreamFocus()
+                                        }
                                     }
-                                } else {
-                                    if (navigationIndex > 0) {
-                                        focusStream(navigationIndex - 1)
-                                    }
+                                    focusZone == "filter" -> Unit
+                                    navigationIndex > 0 -> focusStream(navigationIndex - 1)
+                                    // From the first row, Up reaches the filter pill above the list.
+                                    streams.isNotEmpty() -> focusZone = "filter"
                                 }
                                 true
                             }
                             Key.DirectionDown -> {
-                                if (focusZone == "addons") {
-                                    if (focusedTabIndex < tabLabels.size - 1) {
-                                        focusedTabIndex++
-                                        selectedTabIndex = focusedTabIndex  // Immediately filter on focus
+                                when {
+                                    focusZone == "addons" -> {
+                                        if (focusedTabIndex < tabLabels.size - 1) {
+                                            focusedTabIndex++
+                                            selectedTabIndex = focusedTabIndex  // Immediately filter on focus
+                                            resetStreamFocus()
+                                        }
+                                    }
+                                    focusZone == "filter" -> {
+                                        focusZone = "streams"
                                         resetStreamFocus()
                                     }
-                                } else {
-                                    if (navigationIndex < flatStreams.size - 1) focusStream(navigationIndex + 1)
+                                    navigationIndex < flatStreams.size - 1 -> focusStream(navigationIndex + 1)
                                 }
                                 true
                             }
@@ -722,12 +742,17 @@ fun StreamSelector(
                                 true
                             }
                             Key.Enter, Key.DirectionCenter -> {
-                                if (focusZone == "addons") {
-                                    // Tab already selected on focus, just move to streams
-                                    focusZone = "streams"
-                                    resetStreamFocus()
-                                } else {
-                                    flatStreams.getOrNull(navigationIndex)?.let { stream ->
+                                when {
+                                    focusZone == "addons" -> {
+                                        // Tab already selected on focus, just move to streams
+                                        focusZone = "streams"
+                                        resetStreamFocus()
+                                    }
+                                    focusZone == "filter" -> {
+                                        // Opens the TV text-input modal; the system keyboard does the typing.
+                                        showSourceFilterDialog = true
+                                    }
+                                    else -> flatStreams.getOrNull(navigationIndex)?.let { stream ->
                                         onSelect(stream)
                                     }
                                 }
@@ -752,7 +777,10 @@ fun StreamSelector(
                     sourceFilters = sourceFilters.map { it.label },
                     selectedFilterIndex = selectedFilterIndex,
                     focusedFilterIndex = focusedFilterIndex,
-                    filterFocused = false,
+                    filterFocused = focusZone == "filter",
+                    filterQuery = sourceQuery,
+                    onOpenFilter = { showSourceFilterDialog = true },
+                    onClearFilter = { sourceQuery = "" },
                     tabLabels = tabLabels,
                     tabKeys = tabKeys,
                     selectedTabIndex = selectedTabIndex,
@@ -831,6 +859,18 @@ fun StreamSelector(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
+                    }
+
+                    // Free-text filter: narrows the list to releases whose name matches the query
+                    // ("lat" for Latino audio).
+                    if (streams.isNotEmpty()) {
+                        MobileSourceFilterField(
+                            query = sourceQuery,
+                            onQueryChange = { sourceQuery = it },
+                            shownCount = flatPresentations.size,
+                            totalCount = sourceCount
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
                     }
 
                     // Horizontal scrollable tab row for addon filters
@@ -945,6 +985,49 @@ fun StreamSelector(
                                 }
                             }
                         }
+                    } else if (flatPresentations.isEmpty()) {
+                        // The filter matched nothing: say so instead of leaving a blank list, and
+                        // offer the way back in one tap.
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = TextSecondary.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = stringResource(R.string.stream_no_sources_match),
+                                    style = ArflixTypography.body.copy(
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    color = TextSecondary,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                                if (sourceQuery.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = stringResource(R.string.stream_filter_clear),
+                                        style = ArflixTypography.caption.copy(
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        color = Pink,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable { sourceQuery = "" }
+                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
+                        }
                     } else {
                         LazyColumn(
                             state = mobileListState,
@@ -973,6 +1056,23 @@ fun StreamSelector(
             }
         }
     }
+
+    // TV text entry for the source filter. TextInputModal uses a native EditText, which is what
+    // makes the TV IME usable here: the picker's own D-pad handler stays out of the way while the
+    // modal is open, and the phone layout filters inline instead.
+    if (!isMobile) {
+        TextInputModal(
+            isVisible = showSourceFilterDialog,
+            title = stringResource(R.string.stream_filter_sources),
+            hint = stringResource(R.string.stream_filter_hint),
+            initialValue = sourceQuery,
+            onConfirm = { value ->
+                sourceQuery = value
+                showSourceFilterDialog = false
+            },
+            onCancel = { showSourceFilterDialog = false }
+        )
+    }
 }
 }
 
@@ -991,6 +1091,9 @@ private fun OledSourceSelectorTv(
     selectedFilterIndex: Int,
     focusedFilterIndex: Int,
     filterFocused: Boolean,
+    filterQuery: String,
+    onOpenFilter: () -> Unit,
+    onClearFilter: () -> Unit,
     tabLabels: List<String>,
     tabKeys: List<String>,
     selectedTabIndex: Int,
@@ -1118,6 +1221,20 @@ private fun OledSourceSelectorTv(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // Filter by name ("lat" for Latino audio). The pill opens the TV text-input modal,
+            // because Compose text fields do not drive the D-pad/IME ownership this picker uses.
+            if (streams.isNotEmpty()) {
+                SourceFilterBar(
+                    query = filterQuery,
+                    isFocused = filterFocused,
+                    shownCount = flatPresentations.size,
+                    totalCount = sourceCount,
+                    onOpen = onOpenFilter,
+                    onClear = onClearFilter
+                )
                 Spacer(modifier = Modifier.height(10.dp))
             }
 
@@ -1408,6 +1525,35 @@ private fun sourceFilterMatches(presentation: SourcePresentation, selectedFilter
         "Direct" -> presentation.sortDirect
         else -> true
     }
+}
+
+/**
+ * Free-text filter for the source list, matched against the fields a release is named by.
+ *
+ * The case that motivated it: typing "lat" must surface the Latino-audio torrents, whose only
+ * marker is usually the release filename (`...LATINO...`, `...Latino 5.1...`, `...LAT...`).
+ * Matching the addon's own labels too keeps quality/size words usable as filters ("lat 1080").
+ * Every whitespace-separated token has to match, so several words narrow instead of widening.
+ */
+internal fun sourceMatchesQuery(stream: StreamSource, query: String): Boolean {
+    val tokens = query.trim().lowercase(Locale.ROOT)
+        .split(Regex("\\s+"))
+        .filter { it.isNotEmpty() }
+    if (tokens.isEmpty()) return true
+    val haystack = buildString {
+        append(stream.source); append(' ')
+        append(stream.addonName); append(' ')
+        append(stream.quality); append(' ')
+        append(stream.size); append(' ')
+        append(stream.description.orEmpty()); append(' ')
+        append(stream.rawLabel.orEmpty()); append(' ')
+        append(stream.addonTitle.orEmpty()); append(' ')
+        append(stream.behaviorHints?.filename.orEmpty()); append(' ')
+        append(stream.behaviorHints?.sourceLabel.orEmpty()); append(' ')
+        append(stream.behaviorHints?.indexer.orEmpty()); append(' ')
+        append(stream.behaviorHints?.language.orEmpty())
+    }.lowercase(Locale.ROOT)
+    return tokens.all { haystack.contains(it) }
 }
 
 @Composable
@@ -1969,6 +2115,153 @@ private fun SourceFilterChip(
             color = if (isFocused) Color.Black else TextPrimary.copy(alpha = if (isSelected) 0.96f else 0.82f),
             maxLines = 1
         )
+    }
+}
+
+/**
+ * TV entry point for the name filter. It is a pill rather than a real text field because the
+ * picker owns D-pad focus; selecting it opens [TextInputModal] with the native TV keyboard.
+ */
+@Composable
+private fun SourceFilterBar(
+    query: String,
+    isFocused: Boolean,
+    shownCount: Int,
+    totalCount: Int,
+    onOpen: () -> Unit,
+    onClear: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(18.dp))
+                .background(if (isFocused) Color.White.copy(alpha = 0.16f) else OledPanel)
+                .border(
+                    width = if (isFocused) 2.dp else 1.dp,
+                    color = if (isFocused) Pink else OledMutedBorder,
+                    shape = RoundedCornerShape(18.dp)
+                )
+                .clickable { onOpen() }
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = if (query.isBlank()) OledMutedText else Pink,
+                modifier = Modifier.size(15.dp)
+            )
+            Text(
+                text = query.ifBlank { stringResource(R.string.stream_filter_sources) },
+                style = ArflixTypography.caption.copy(
+                    fontSize = 12.sp,
+                    fontWeight = if (query.isBlank()) FontWeight.SemiBold else FontWeight.Bold
+                ),
+                color = if (query.isBlank()) OledMutedText else TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        if (query.isNotBlank()) {
+            Text(
+                text = stringResource(R.string.stream_filter_showing, shownCount, totalCount),
+                style = ArflixTypography.caption.copy(fontSize = 12.sp),
+                color = OledMutedText,
+                maxLines = 1
+            )
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(OledPanel)
+                    .border(1.dp, OledMutedBorder, CircleShape)
+                    .clickable { onClear() }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Clear,
+                    contentDescription = stringResource(R.string.stream_filter_clear),
+                    tint = OledMutedText,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Phone/tablet counterpart of [SourceFilterBar]: a real inline field, because touch devices have
+ * no D-pad focus graph to fight over and expect to type straight into the list.
+ */
+@Composable
+private fun MobileSourceFilterField(
+    query: String,
+    shownCount: Int,
+    totalCount: Int,
+    onQueryChange: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.White.copy(alpha = 0.08f))
+                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(16.dp)
+            )
+            Box(modifier = Modifier.weight(1f)) {
+                if (query.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.stream_filter_hint),
+                        style = ArflixTypography.caption.copy(fontSize = 13.sp),
+                        color = TextSecondary.copy(alpha = 0.7f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = ArflixTypography.caption.copy(fontSize = 13.sp, color = TextPrimary),
+                    cursorBrush = SolidColor(Pink),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            if (query.isNotEmpty()) {
+                Icon(
+                    imageVector = Icons.Default.Clear,
+                    contentDescription = stringResource(R.string.stream_filter_clear),
+                    tint = TextSecondary,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clickable { onQueryChange("") }
+                )
+            }
+        }
+        if (query.isNotBlank()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = stringResource(R.string.stream_filter_showing, shownCount, totalCount),
+                style = ArflixTypography.caption.copy(fontSize = 11.sp),
+                color = TextSecondary,
+                maxLines = 1
+            )
+        }
     }
 }
 

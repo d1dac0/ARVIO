@@ -67,9 +67,11 @@ jobs:
           # Every run must be a strictly higher version so devices accept the update.
           VERSION_CODE=$((BASE_CODE + GITHUB_RUN_NUMBER))
           VERSION_NAME="${BASE_NAME}-fork.${GITHUB_RUN_NUMBER}"
-          echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
-          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          {
+            echo "code=$VERSION_CODE"
+            echo "name=$VERSION_NAME"
+            echo "tag=v$VERSION_NAME"
+          } >> "$GITHUB_OUTPUT"
           echo "Building $VERSION_NAME (versionCode $VERSION_CODE)"
 
       - name: Prepare production signing
@@ -104,9 +106,14 @@ jobs:
       - name: Verify signing certificate
         run: |
           set -euo pipefail
-          APK=$(ls app/build/outputs/apk/sideload/release/*.apk)
-          test "$(echo "$APK" | wc -l)" -eq 1 || { echo "Expected exactly one APK, got:"; echo "$APK"; exit 1; }
-          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)
+          mapfile -t APKS < <(find app/build/outputs/apk/sideload/release -maxdepth 1 -name '*.apk' -type f)
+          test "${#APKS[@]}" -eq 1 || {
+            echo "Expected exactly one APK, got ${#APKS[@]}:"
+            printf '%s\n' "${APKS[@]}"
+            exit 1
+          }
+          APK="${APKS[0]}"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner -type f | sort -V | tail -n1)
           "$APKSIGNER" verify --print-certs "$APK" | grep -E 'SHA-256|DN'
           mkdir -p dist
           cp "$APK" "dist/ARVIO-${{ steps.version.outputs.name }}-sideload-release.apk"

@@ -308,6 +308,7 @@ val LocalSettingsFocusTracker = compositionLocalOf<SettingsFocusTracker?> { null
 
 private const val ACCOUNT_DELETION_URL = "https://auth.arvio.tv/delete"
 private const val PRIVACY_POLICY_URL = "https://arvio.tv/privacy"
+private const val TRAKT_API_APPLICATIONS_URL = "https://trakt.tv/oauth/applications"
 
 private fun isRepeatedSettingsSelect(event: androidx.compose.ui.input.key.KeyEvent): Boolean =
     event.type == KeyEventType.KeyDown &&
@@ -1039,6 +1040,7 @@ fun SettingsScreen(
         uiState.simklUserCode != null ||
         uiState.mdbListCode != null ||
         uiState.showMdbListApiKeyDialog ||
+        uiState.showTraktCredentialsDialog ||
         uiState.plexHomeServerAuth != null ||
         uiState.showAppUpdateDialog ||
         uiState.showUnknownSourcesDialog ||
@@ -3431,6 +3433,13 @@ fun SettingsScreen(
             )
         }
 
+        if (uiState.showTraktCredentialsDialog) {
+            TraktCredentialsDialog(
+                onSave = { clientId, clientSecret -> viewModel.saveTraktCredentials(clientId, clientSecret) },
+                onDismiss = { viewModel.dismissTraktCredentialsDialog() }
+            )
+        }
+
         uiState.plexHomeServerAuth?.let { plexAuth ->
             TraktActivationModal(
                 title = stringResource(R.string.settings_connect_with_code),
@@ -4429,6 +4438,119 @@ private fun ActivationDialogButton(
                 style = ArflixTypography.button,
                 color = if (isPrimary) accentContentColor else TextPrimary
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TraktCredentialsDialog(
+    onSave: (String, String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val isMobile = LocalDeviceType.current.isTouchDevice()
+    var clientId by remember { mutableStateOf("") }
+    var clientSecret by remember { mutableStateOf("") }
+    val idFocusRequester = remember { FocusRequester() }
+    val idFocusModifier = rememberSettingsInputFocusModifier(
+        requester = idFocusRequester,
+        enabled = true,
+        blocked = false
+    )
+
+    BackHandler { onDismiss() }
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Column(
+            modifier = Modifier
+                .then(
+                    if (isMobile) Modifier.fillMaxWidth(0.94f)
+                    else Modifier.width(560.dp)
+                )
+                .clip(RoundedCornerShape(16.dp))
+                .background(BackgroundElevated)
+                .padding(24.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.settings_trakt_credentials_title),
+                style = ArflixTypography.sectionTitle,
+                color = TextPrimary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = stringResource(R.string.settings_trakt_credentials_desc),
+                style = ArflixTypography.body,
+                color = TextSecondary
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = stringResource(R.string.settings_trakt_credentials_create_app),
+                style = ArflixTypography.caption,
+                color = Pink,
+                modifier = Modifier.clickable {
+                    openExternalUrl(context, TRAKT_API_APPLICATIONS_URL)
+                }
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            androidx.compose.material3.OutlinedTextField(
+                value = clientId,
+                onValueChange = { clientId = it },
+                singleLine = true,
+                label = { Text(stringResource(R.string.settings_trakt_credentials_client_id)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(idFocusModifier)
+                    .focusRequester(idFocusRequester),
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    focusedBorderColor = Pink,
+                    unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f)
+                )
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            androidx.compose.material3.OutlinedTextField(
+                value = clientSecret,
+                onValueChange = { clientSecret = it },
+                singleLine = true,
+                label = { Text(stringResource(R.string.settings_trakt_credentials_client_secret)) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    focusedBorderColor = Pink,
+                    unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f)
+                )
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(modifier = Modifier.weight(1f)) {
+                    ActivationDialogButton(
+                        label = stringResource(R.string.cancel),
+                        isPrimary = false,
+                        accentColor = Pink,
+                        accentContentColor = TextPrimary,
+                        fillWidth = true,
+                        focusRequester = null,
+                        onClick = onDismiss
+                    )
+                }
+                Box(modifier = Modifier.weight(1f)) {
+                    ActivationDialogButton(
+                        label = stringResource(R.string.save),
+                        isPrimary = true,
+                        accentColor = Pink,
+                        accentContentColor = Color.Black,
+                        fillWidth = true,
+                        focusRequester = null,
+                        onClick = { onSave(clientId, clientSecret) }
+                    )
+                }
+            }
         }
     }
 }

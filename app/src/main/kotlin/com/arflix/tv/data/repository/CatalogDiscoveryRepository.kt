@@ -5,7 +5,6 @@ import com.arflix.tv.data.api.TraktApi
 import com.arflix.tv.data.model.CatalogDiscoveryResult
 import com.arflix.tv.data.model.CatalogSourceType
 import com.arflix.tv.R
-import com.arflix.tv.util.Constants
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -62,7 +61,7 @@ class CatalogDiscoveryRepository @Inject constructor(
 
     private suspend fun searchTraktLists(query: String): List<CatalogDiscoveryResult> {
         return traktApi.searchLists(
-            clientId = Constants.TRAKT_CLIENT_ID,
+            clientId = TraktCredentials.clientId,
             query = query,
             limit = 40
         )

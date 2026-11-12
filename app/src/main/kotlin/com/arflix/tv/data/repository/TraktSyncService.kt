@@ -62,7 +62,7 @@ class TraktSyncService @Inject constructor(
     private val TAG = "TraktSyncService"
 
     private val gson = Gson()
-    private val clientId = Constants.TRAKT_CLIENT_ID
+    private val clientId: String get() = TraktCredentials.clientId
 
     // Sync progress state
     private val _syncProgress = MutableStateFlow(SyncProgress())

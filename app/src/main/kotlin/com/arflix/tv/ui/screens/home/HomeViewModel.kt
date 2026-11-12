@@ -2688,11 +2688,8 @@ class HomeViewModel @Inject constructor(
             }
         }
 
-        // Check for updates shortly after startup
-        viewModelScope.launch {
-            delay(if (isLowRamDevice) 15_000L else 10_000L)
-            checkForAppUpdates(silent = true)
-        }
+        // Update checks are owned by AppUpdateChecker through MainActivity's foreground
+        // signal, so a resumed TV notices releases without Home being recomposed.
 
     }
 

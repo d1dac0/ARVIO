@@ -7,7 +7,6 @@ import com.arflix.tv.data.api.RefreshTokenRequest
 import com.arflix.tv.data.api.TraktApi
 import com.arflix.tv.data.api.TraktToken
 import com.arflix.tv.util.AppLogger
-import com.arflix.tv.util.Constants
 import com.arflix.tv.util.traktDataStore
 import com.google.gson.JsonParser
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -108,14 +107,14 @@ class TraktSession @Inject constructor(
             val held = backoff[profileId]
             if (held?.first == current && now < held.second) return@withLock usable()
             try {
-                check(Constants.TRAKT_CLIENT_SECRET.isNotBlank()) { "Trakt credentials missing in this APK" }
+                check(TraktCredentials.clientSecret.isNotBlank()) { "Trakt credentials missing in this APK" }
                 // Finish the bounded auth request and persist its single-use replacement even
                 // if the UI's short username timeout or a screen exit cancels the caller.
                 withContext(NonCancellable) {
                     val token = api.refreshToken(RefreshTokenRequest(
                         refreshToken = current.refresh,
-                        clientId = Constants.TRAKT_CLIENT_ID,
-                        clientSecret = Constants.TRAKT_CLIENT_SECRET
+                        clientId = TraktCredentials.clientId,
+                        clientSecret = TraktCredentials.clientSecret
                     ))
                     // Do not overwrite a login, logout or cloud restore during the request.
                     var rotated = false
@@ -192,7 +191,7 @@ class TraktSession @Inject constructor(
 
     private suspend fun accountRejects(accessToken: String): Boolean {
         return try {
-            api.getMe(auth = "Bearer $accessToken", clientId = Constants.TRAKT_CLIENT_ID)
+            api.getMe(auth = "Bearer $accessToken", clientId = TraktCredentials.clientId)
             false
         } catch (error: HttpException) {
             error.code() == 401

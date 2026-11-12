@@ -568,20 +568,20 @@ class ReleaseCalendarRepository @Inject constructor(
     }
 
     private suspend fun authoritativeTimes(media: MediaItem, seasons: List<Int>): List<TraktCalendarEpisode> = coroutineScope {
-        if (seasons.isEmpty() || Constants.TRAKT_CLIENT_ID.isBlank()) return@coroutineScope emptyList()
+        if (seasons.isEmpty() || TraktCredentials.clientId.isBlank()) return@coroutineScope emptyList()
         val found = mutableListOf<TraktCalendarEpisode>()
         // Queueing is not a network failure. Start each optional request's budget
         // only after it acquires a permit, as with the web Calendar season reader.
         try {
             val traktId = media.traktId ?: cached<Int>("trakt-id:${media.id}", timePermits, 4_000) {
-                traktApi.searchByTmdb(Constants.TRAKT_CLIENT_ID, media.id, "show")
+                traktApi.searchByTmdb(TraktCredentials.clientId, media.id, "show")
                     .firstOrNull { it.show?.ids?.tmdb == media.id }?.show?.ids?.trakt
                     ?: throw IOException("No Trakt mapping")
             }
             seasons.map { season -> async {
                 try {
                     val episodes = cached<List<TraktCalendarEpisode>>("trakt-season:$traktId:$season", timePermits, 4_000) {
-                        traktApi.getCalendarSeasonEpisodes(Constants.TRAKT_CLIENT_ID, traktId, season)
+                        traktApi.getCalendarSeasonEpisodes(TraktCredentials.clientId, traktId, season)
                     }
                     synchronized(found) { found.addAll(episodes) }
                 } catch (error: CancellationException) {

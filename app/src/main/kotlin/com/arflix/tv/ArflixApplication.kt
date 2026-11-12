@@ -89,6 +89,8 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
     override fun attachBaseContext(base: android.content.Context) {
         super.attachBaseContext(base)
         OkHttpProvider.init(this)
+        // Must be in memory before Hilt injects the repositories that read it.
+        com.arflix.tv.data.repository.TraktCredentials.load(this)
     }
 
     override fun onCreate() {

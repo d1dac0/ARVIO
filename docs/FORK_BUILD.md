@@ -83,6 +83,22 @@ workflow forwards them as environment variables, and they take priority over
 | `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` | Telegram sign-in and streaming work |
 | `TRAKT_CLIENT_ID`, `TRAKT_CLIENT_SECRET` | Trakt connection and scrobbling work |
 
+### Trakt without repository secrets
+
+A fork APK built without `TRAKT_CLIENT_ID` / `TRAKT_CLIENT_SECRET` can still
+connect Trakt. Open **Settings → Accounts → Trakt.tv → Connect**: the app asks for
+the Client ID and Client Secret of a Trakt API app and keeps them on the device.
+Create one at <https://trakt.tv/oauth/applications> (the redirect URI is not used
+by device activation), then paste both values. The saved pair takes precedence
+over the build placeholders; clearing the app's data removes it.
+
+This is the fallback for builds without baked-in credentials. Shipping the values
+through the repository secrets above is still preferred: it needs no per-device
+setup and keeps the secret out of app storage.
+
+Without any credentials the rest of the app still works; only Trakt stays
+disabled.
+
 Without a local `secrets.properties`, builds fall back to the public defaults,
 including upstream's Supabase project URL and anon key — i.e. cloud sync talks to
 upstream's backend. Point `SUPABASE_URL`/`APP_ANON_KEY` elsewhere if you want

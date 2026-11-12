@@ -1480,7 +1480,7 @@ class CatalogRepository @Inject constructor(
             is ParsedCatalogUrl.TraktUserList -> {
                 try {
                     val summary = traktApi.getUserListSummary(
-                        clientId = Constants.TRAKT_CLIENT_ID,
+                        clientId = TraktCredentials.clientId,
                         username = parsed.username,
                         listId = parsed.listId
                     )
@@ -1497,7 +1497,7 @@ class CatalogRepository @Inject constructor(
             is ParsedCatalogUrl.TraktList -> {
                 try {
                     val summary = traktApi.getListSummary(
-                        clientId = Constants.TRAKT_CLIENT_ID,
+                        clientId = TraktCredentials.clientId,
                         listId = parsed.listId
                     )
                     ResolvedCatalog(

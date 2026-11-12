@@ -158,6 +158,7 @@ import com.arflix.tv.worker.TraktSyncWorker
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.Lazy
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
 import javax.inject.Inject
@@ -182,6 +183,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var idleReturnCoordinator: com.arflix.tv.data.repository.IdleReturnCoordinator
+
+    @Inject
+    lateinit var appUpdateChecker: com.arflix.tv.updater.AppUpdateChecker
 
     /** Key whose press ended an idle period on the player; its release is swallowed too. */
     private val swallowedIdleKeys = mutableSetOf<Int>()
@@ -542,10 +546,18 @@ class MainActivity : ComponentActivity() {
         // whatever was left on display — and a Home-scoped observer would never
         // run in that case. The first resume is skipped because startup already
         // fetches.
+        val firstResume = !hasHandledFirstResume
         if (hasHandledFirstResume) {
             appForegroundSignals.notifyReturnedToForeground()
         } else {
             hasHandledFirstResume = true
+        }
+        // A TV app is rarely killed, so a release published while it sits in the
+        // background was never seen. Check on every foreground; the checker throttles
+        // the GitHub call and Home opens the popup when the status changes.
+        lifecycleScope.launch {
+            delay(if (firstResume) 8_000L else 1_500L)
+            appUpdateChecker.checkIfDue()
         }
     }
 

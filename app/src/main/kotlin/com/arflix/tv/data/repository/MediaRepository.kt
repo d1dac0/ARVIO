@@ -3517,11 +3517,11 @@ class MediaRepository @Inject constructor(
                 while (true) {
                     val rows = when (parsed) {
                         is ParsedCatalogUrl.TraktUserList -> traktApi.getUserListItems(
-                            clientId = Constants.TRAKT_CLIENT_ID, username = parsed.username,
+                            clientId = TraktCredentials.clientId, username = parsed.username,
                             listId = parsed.listId, type = type, page = page, limit = 100,
                             freshness = listFreshnessMarker())
                         is ParsedCatalogUrl.TraktList -> traktApi.getListItems(
-                            clientId = Constants.TRAKT_CLIENT_ID, listId = parsed.listId,
+                            clientId = TraktCredentials.clientId, listId = parsed.listId,
                             type = type, page = page, limit = 100,
                             freshness = listFreshnessMarker())
                         else -> emptyList()

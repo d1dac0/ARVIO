@@ -490,6 +490,10 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
     var hasPlaybackStarted by remember { mutableStateOf(false) }  // Track if playback has actually started
     var firstVideoFrameRendered by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(true) }
+    // Back on the remote no longer leaves playback on the first press: it arms this
+    // confirmation and a second press inside the window exits. Any other key disarms it.
+    var showExitConfirmation by remember { mutableStateOf(false) }
+    var exitConfirmationArmedAtMs by remember { mutableLongStateOf(0L) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var progress by remember { mutableFloatStateOf(0f) }
@@ -2237,6 +2241,26 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
         }
         exitTransition.requestExit()
     }
+    // The remote's Back is easy to hit while adjusting position, so it only leaves after the
+    // second press. The first one arms the confirmation and shows a hint for two seconds.
+    val requestExitPlayer: () -> Unit = {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (shouldExitPlayerOnBack(exitConfirmationArmedAtMs, now)) {
+            exitConfirmationArmedAtMs = 0L
+            showExitConfirmation = false
+            onExitPlayer()
+        } else {
+            exitConfirmationArmedAtMs = now
+            showExitConfirmation = true
+        }
+    }
+    LaunchedEffect(exitConfirmationArmedAtMs) {
+        if (exitConfirmationArmedAtMs > 0L) {
+            delay(PLAYER_EXIT_CONFIRM_WINDOW_MS)
+            exitConfirmationArmedAtMs = 0L
+            showExitConfirmation = false
+        }
+    }
 
     fun leaveIdlePlayer() {
         if (playerReleased || exitTransition.isExiting || isInPipMode || exoPlayer.isPlaying) return
@@ -3744,7 +3768,7 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
         } else if (showControls && !deviceType.isTouchDevice()) {
             showControls = false
         } else {
-            onExitPlayer()
+            requestExitPlayer()
         }
     }
 
@@ -3782,6 +3806,12 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
             .onPreviewKeyEvent { exitTransition.isExiting }
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
+                    // The exit confirmation is tied to an uninterrupted Back gesture sequence:
+                    // any other key means the user kept interacting, so disarm it.
+                    if (exitConfirmationArmedAtMs > 0L && event.key != Key.Back && event.key != Key.Escape) {
+                        exitConfirmationArmedAtMs = 0L
+                        showExitConfirmation = false
+                    }
                     if (event.nativeKeyEvent.repeatCount > 0 &&
                         event.key in listOf(Key.Enter, Key.DirectionCenter, Key.MediaPlayPause)) return@onKeyEvent true
                     // Fire TV / Bluetooth media remote keys. These must be handled at the
@@ -3891,7 +3921,7 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
                         } else if (showControls && !deviceType.isTouchDevice()) {
                             showControls = false
                         } else {
-                            onExitPlayer()
+                            requestExitPlayer()
                         }
                         return@onKeyEvent true
                     }
@@ -4408,6 +4438,20 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
                     color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.9f)
                 )
             }
+        }
+
+        // Back left the player armed; a second press inside the window leaves for real.
+        if (showExitConfirmation) {
+            Toast(
+                message = stringResource(R.string.player_press_back_again_to_exit),
+                type = ToastType.INFO,
+                isVisible = true,
+                durationMs = PLAYER_EXIT_CONFIRM_WINDOW_MS,
+                onDismiss = {
+                    showExitConfirmation = false
+                    exitConfirmationArmedAtMs = 0L
+                }
+            )
         }
 
         // AI translation API error toast

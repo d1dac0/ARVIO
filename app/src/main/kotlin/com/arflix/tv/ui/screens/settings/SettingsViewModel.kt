@@ -74,6 +74,7 @@ import com.arflix.tv.data.telegram.TelegramRepository
 import com.arflix.tv.data.repository.TvDeviceAuthRepository
 import com.arflix.tv.data.repository.TvDeviceAuthSession
 import com.arflix.tv.data.repository.TvDeviceAuthStatusType
+import com.arflix.tv.data.repository.TraktCredentials
 import com.arflix.tv.data.repository.TraktRepository
 import com.arflix.tv.data.repository.TraktSyncService
 import com.arflix.tv.data.repository.WatchlistRepository
@@ -289,6 +290,8 @@ data class SettingsUiState(
     val traktAuthOutcome: TraktAuthOutcome? = null,
     val isTraktAuthStarting: Boolean = false,
     val isTraktPolling: Boolean = false,
+    /** Fork builds without baked-in Trakt API credentials ask for a user-supplied pair. */
+    val showTraktCredentialsDialog: Boolean = false,
     val traktExpiration: String? = null,
     val traktUsername: String? = null,
     // MDBList (alternative remote sync provider)
@@ -5168,6 +5171,15 @@ class SettingsViewModel @Inject constructor(
     fun startTraktAuth() {
         val current = _uiState.value
         if (current.isTraktAuthStarting || current.isTraktPolling) return
+        // Device auth cannot exchange a token without the API app's secret. Ask for one
+        // instead of throwing "Trakt credentials missing in this APK" at the user.
+        if (!TraktCredentials.isConfigured) {
+            _uiState.value = _uiState.value.copy(
+                showTraktCredentialsDialog = true,
+                toastMessage = null
+            )
+            return
+        }
 
         traktStartupJob?.cancel()
         traktPollingJob?.cancel()
@@ -5223,11 +5235,30 @@ class SettingsViewModel @Inject constructor(
                     isTraktAuthStarting = false,
                     isTraktPolling = false,
                     traktUsername = null,
+                    // A bad API app (revoked secret, wrong client id) is only fixable by
+                    // entering another pair, so reopen the dialog instead of looping on Retry.
+                    showTraktCredentialsDialog = e is retrofit2.HttpException && e.code() in 400..403,
                     toastMessage = message,
                     toastType = ToastType.ERROR
                 )
             }
         }
+    }
+
+    fun saveTraktCredentials(clientId: String, clientSecret: String) {
+        if (!TraktCredentials.save(context, clientId, clientSecret)) {
+            _uiState.value = _uiState.value.copy(
+                toastMessage = SettingsMessage.Res(R.string.settings_trakt_credentials_invalid),
+                toastType = ToastType.ERROR
+            )
+            return
+        }
+        _uiState.value = _uiState.value.copy(showTraktCredentialsDialog = false)
+        startTraktAuth()
+    }
+
+    fun dismissTraktCredentialsDialog() {
+        _uiState.value = _uiState.value.copy(showTraktCredentialsDialog = false)
     }
 
     fun reconnectTrakt() {

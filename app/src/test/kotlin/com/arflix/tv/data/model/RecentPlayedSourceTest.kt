@@ -46,6 +46,20 @@ class RecentPlayedSourceTest {
     }
 
     @Test
+    fun matchesTheSameBingeGroupWhenTheDebridUrlRotated() {
+        val played = stream(
+            url = "https://torbox/download/expired",
+            bingeGroup = "torrentio|tb|1080p|Movie.2024.1080p.WEB-DL",
+        )
+        val streams = listOf(
+            stream(url = "https://torbox/download/other", bingeGroup = "torrentio|tb|1080p|Other.Movie"),
+            stream(url = "https://torbox/download/fresh", bingeGroup = "torrentio|tb|1080p|Movie.2024.1080p.WEB-DL"),
+        )
+
+        assertThat(findRecentSourceMatch(streams, recordOf(played))).isSameInstanceAs(streams[1])
+    }
+
+    @Test
     fun prefersTheStrongestMatch() {
         val played = stream(source = "Shared title", url = "https://addon/play/exact")
         val streams = listOf(
@@ -92,6 +106,7 @@ class RecentPlayedSourceTest {
         infoHash: String? = null,
         fileIdx: Int? = null,
         filename: String? = null,
+        bingeGroup: String? = null,
     ) = StreamSource(
         source = source,
         addonName = "Torrentio",
@@ -101,6 +116,8 @@ class RecentPlayedSourceTest {
         url = url,
         infoHash = infoHash,
         fileIdx = fileIdx,
-        behaviorHints = filename?.let { StreamBehaviorHints(filename = it) },
+        behaviorHints = if (filename != null || bingeGroup != null) {
+            StreamBehaviorHints(filename = filename, bingeGroup = bingeGroup)
+        } else null,
     )
 }

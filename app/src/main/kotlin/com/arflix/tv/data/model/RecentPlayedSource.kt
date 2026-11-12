@@ -20,6 +20,8 @@ data class RecentPlayedSource(
     val infoHash: String? = null,
     val fileIdx: Int? = null,
     val filename: String? = null,
+    /** The addon's stable release/torrent identity; survives debrid URL rotation. */
+    val bingeGroup: String? = null,
     val playedAtMs: Long = 0L,
 ) {
     fun appliesTo(mediaType: MediaType, mediaId: Int, season: Int?, episode: Int?): Boolean =
@@ -47,6 +49,7 @@ data class RecentPlayedSource(
             infoHash = stream.infoHash?.trim()?.lowercase()?.takeIf { it.isNotBlank() },
             fileIdx = stream.fileIdx,
             filename = stream.behaviorHints?.filename?.trim()?.takeIf { it.isNotBlank() },
+            bingeGroup = stream.behaviorHints?.bingeGroup?.trim()?.takeIf { it.isNotBlank() },
             playedAtMs = playedAtMs,
         )
     }
@@ -55,8 +58,10 @@ data class RecentPlayedSource(
 /**
  * The stream in [streams] that is [recent]'s source, or null. Addon results are fetched fresh
  * each time, so this matches on identity rather than object equality, strongest field first:
- * URL, then torrent hash + file, then filename, then the addon's source text. Two addons can
- * list the same file, and the user picked one of them, so the addon must match too.
+ * URL, then torrent hash + file, then the addon's binge group (the stable release identity
+ * Torrentio/TorBox-style addons keep across URL rotation), then filename, then the addon's
+ * source text. Two addons can list the same file, and the user picked one of them, so the
+ * addon must match too.
  */
 fun findRecentSourceMatch(streams: List<StreamSource>, recent: RecentPlayedSource?): StreamSource? {
     recent ?: return null
@@ -78,6 +83,8 @@ private fun recentSourceMatchScore(stream: StreamSource, recent: RecentPlayedSou
     if (!url.isNullOrBlank() && url == recent.url) return 4
     val infoHash = stream.infoHash?.trim()?.lowercase()
     if (!infoHash.isNullOrBlank() && infoHash == recent.infoHash && stream.fileIdx == recent.fileIdx) return 3
+    val bingeGroup = stream.behaviorHints?.bingeGroup?.trim()
+    if (!bingeGroup.isNullOrBlank() && bingeGroup == recent.bingeGroup) return 3
     val filename = stream.behaviorHints?.filename?.trim()
     if (!filename.isNullOrBlank() && filename.equals(recent.filename, ignoreCase = true)) return 2
     val source = stream.source.trim()

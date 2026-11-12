@@ -33,6 +33,7 @@ import com.arflix.tv.data.repository.MediaRepository
 import com.arflix.tv.data.repository.HomeServerRepository
 import com.arflix.tv.data.repository.PlaybackTelemetryRepository
 import com.arflix.tv.data.repository.ProfileManager
+import com.arflix.tv.data.repository.PlaybackTrackMemory
 import com.arflix.tv.data.repository.RecentPlayedSourceRepository
 import com.arflix.tv.data.repository.SkipInterval
 import com.arflix.tv.data.repository.SkipIntroRepository
@@ -186,6 +187,8 @@ data class PlayerUiState(
     val streamSelectionNonce: Int = 0,
     // This title's recently played source, pinned at the top of the source menu.
     val recentSource: RecentPlayedSource? = null,
+    // Audio/subtitle picks remembered for this title, restored once per playback.
+    val trackMemory: PlaybackTrackMemory? = null,
     val selectedSubtitle: Subtitle? = null,
     val subtitleSelectionNonce: Int = 0,
     // "Preload Subtitles" mode: preferred-language addon subs downloaded to local files before
@@ -332,6 +335,7 @@ class PlayerViewModel @Inject constructor(
     private val pluginManager: PluginManager,
     private val streamIntegrationRepository: StreamIntegrationRepository,
     private val recentPlayedSourceRepository: RecentPlayedSourceRepository,
+    private val playbackTrackMemoryStore: com.arflix.tv.data.repository.PlaybackTrackMemoryStore,
     private val kidsContentFilter: KidsContentFilter,
     val idleReturnCoordinator: com.arflix.tv.data.repository.IdleReturnCoordinator
 ) : ViewModel() {
@@ -393,6 +397,9 @@ class PlayerViewModel @Inject constructor(
     // Automatic writers are gated at their entry points, never by rewriting StateFlow emissions.
     // Explicit AI, Find best match, subtitles off, and media/source changes release the lock.
     private var userLockedSubtitleKey: String? = null
+    // The remembered subtitle for this title is offered once per playback; after that the
+    // normal auto-match/user-selection rules own the track.
+    private var rememberedSubtitleApplied: Boolean = false
     private var playbackSessionStartTime: Long = 0L
     private val recentSourcePlayTracker = RecentSourcePlayTracker()
     private var recentSourceLoad: Deferred<RecentPlayedSource?>? = null
@@ -784,6 +791,8 @@ class PlayerViewModel @Inject constructor(
         currentDisplayEpisode = displayEpisodeNumber
         currentAnimeQueryOverride = animeQueryOverride
         currentStartPositionMs = startPositionMs
+        val trackMemory = playbackTrackMemoryStore.get(mediaType, mediaId, seasonNumber, episodeNumber)
+        rememberedSubtitleApplied = false
         currentPreferredAddonId = preferredAddonId?.trim()?.takeIf { it.isNotBlank() }
         currentPreferredSourceName = preferredSourceName?.trim()?.takeIf { it.isNotBlank() }
         currentPreferredBingeGroup = preferredBingeGroup?.trim()?.takeIf { it.isNotBlank() }
@@ -863,7 +872,8 @@ class PlayerViewModel @Inject constructor(
             sourceSearchActive = false,
             error = null,
             isSetupError = false,
-            recentSource = null
+            recentSource = null,
+            trackMemory = trackMemory
         )
         loadRecentSource(mediaType, mediaId, seasonNumber, episodeNumber)
         lastTopPrewarmKey = ""
@@ -993,6 +1003,7 @@ class PlayerViewModel @Inject constructor(
                 audioNormalization = audioNormalization,
                 showLoadingStats = showLoadingStats,
                 volumeBoostDb = volumeBoostDb,
+                trackMemory = trackMemory,
                 subtitlePreloadEnabled = subtitlePreloadEnabled,
                 dolbyVisionCompatEnabled = prefs[dolbyVisionCompatPrefKey] ?: true,
                 // Nothing to preload without a preferred language — don't make the gate wait.
@@ -2225,6 +2236,24 @@ class PlayerViewModel @Inject constructor(
 
     private fun applyPreferredSubtitle(preference: String, subtitles: List<Subtitle>, fallbackLanguage: String?) {
         if (userLockedSubtitleKey != null) return
+        // A track the user picked for this title last time beats the global language default.
+        // Only offered until it lands (or the user picks something else); an unknown track from
+        // a different source falls through to today's preference logic.
+        val memory = _uiState.value.trackMemory
+        if (!rememberedSubtitleApplied && memory != null && memory.hasSubtitle) {
+            if (memory.subtitlesOff) {
+                rememberedSubtitleApplied = true
+                hasManualSubtitleSelection = true
+                _uiState.value = _uiState.value.copy(selectedSubtitle = null)
+                return
+            }
+            val remembered = findRememberedSubtitle(memory, subtitles)
+            if (remembered != null) {
+                rememberedSubtitleApplied = true
+                selectSubtitle(remembered, isUserAction = true)
+                return
+            }
+        }
         val normalizedPref = normalizeLanguage(preference)
         if (normalizedPref.isNotBlank() && !isSubtitleDisabledPreference(preference)) {
             setTargetSubtitleLang(normalizedPref)
@@ -3616,6 +3645,7 @@ class PlayerViewModel @Inject constructor(
         hasManualSubtitleSelection = true
         userPickedSubtitle = isUserAction || locked != null
         if (isUserAction) {
+            rememberSubtitleSelection(subtitle)
             // The user's own pick — the ground truth a scan verdict is judged against.
             Log.i(
                 "SubMatch",
@@ -7562,6 +7592,7 @@ class PlayerViewModel @Inject constructor(
 
     fun disableSubtitles() {
         hasManualSubtitleSelection = true
+        rememberSubtitlesOff()
         // Turning subtitles Off is an explicit user action — stop any running "Find best match"/
         // hearing scan (it also disconnects the Gemini Live audio stream). Without this, the scan
         // kept running with no way to cancel it. Mirrors selectSubtitle()'s user-action path.
@@ -7583,6 +7614,70 @@ class PlayerViewModel @Inject constructor(
 
     fun dismissAiErrorToast() {
         _uiState.value = _uiState.value.copy(aiErrorToast = null)
+    }
+
+    fun rememberAudioTrack(language: String?, label: String?, index: Int) {
+        if (currentMediaId <= 0 || currentIsLiveStreamPlayback) return
+        val memory = (_uiState.value.trackMemory ?: PlaybackTrackMemory()).copy(
+            audioLanguage = language?.trim()?.takeIf { it.isNotBlank() },
+            audioLabel = label?.trim()?.takeIf { it.isNotBlank() },
+            audioIndex = index,
+            updatedAtMs = System.currentTimeMillis(),
+        )
+        _uiState.value = _uiState.value.copy(trackMemory = memory)
+        playbackTrackMemoryStore.saveAudio(
+            mediaType = currentMediaType,
+            mediaId = currentMediaId,
+            season = currentSeason,
+            episode = currentEpisode,
+            language = language,
+            label = label,
+            index = index,
+        )
+    }
+
+    private fun rememberSubtitleSelection(subtitle: Subtitle) {
+        if (currentMediaId <= 0 || currentIsLiveStreamPlayback) return
+        // Embedded tracks often have no id; then language/label are the identity, not "|".
+        val key = if (subtitle.id.isNotBlank()) SubtitleSelectionPolicy.key(subtitle) else null
+        val memory = (_uiState.value.trackMemory ?: PlaybackTrackMemory()).copy(
+            subtitleKey = key,
+            subtitleLang = subtitle.lang.takeIf { it.isNotBlank() },
+            subtitleLabel = subtitle.label.takeIf { it.isNotBlank() },
+            subtitleUrl = subtitle.url.takeIf { it.isNotBlank() },
+            subtitlesOff = false,
+            updatedAtMs = System.currentTimeMillis(),
+        )
+        _uiState.value = _uiState.value.copy(trackMemory = memory)
+        playbackTrackMemoryStore.saveSubtitle(
+            mediaType = currentMediaType,
+            mediaId = currentMediaId,
+            season = currentSeason,
+            episode = currentEpisode,
+            key = key,
+            language = subtitle.lang,
+            label = subtitle.label,
+            url = subtitle.url,
+        )
+    }
+
+    private fun rememberSubtitlesOff() {
+        if (currentMediaId <= 0 || currentIsLiveStreamPlayback) return
+        val memory = (_uiState.value.trackMemory ?: PlaybackTrackMemory()).copy(
+            subtitleKey = null,
+            subtitleLang = null,
+            subtitleLabel = null,
+            subtitleUrl = null,
+            subtitlesOff = true,
+            updatedAtMs = System.currentTimeMillis(),
+        )
+        _uiState.value = _uiState.value.copy(trackMemory = memory)
+        playbackTrackMemoryStore.saveSubtitlesOff(
+            mediaType = currentMediaType,
+            mediaId = currentMediaId,
+            season = currentSeason,
+            episode = currentEpisode,
+        )
     }
 
     private fun recordSubtitleUsage(subtitle: Subtitle) {

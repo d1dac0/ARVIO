@@ -2607,6 +2607,18 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
     LaunchedEffect(audioTracks, uiState.preferredAudioLanguage, userPickedAudioForStream) {
         if (playerReleased || userPickedAudioForStream) return@LaunchedEffect
         if (audioTracks.size < 2) return@LaunchedEffect
+        // The track picked for this title last time wins over the global language preference.
+        val rememberedIndex = findRememberedAudioTrackIndex(audioTracks, uiState.trackMemory)
+        if (rememberedIndex != null) {
+            val applied = audioTracks.getOrNull(rememberedIndex)?.let { track ->
+                applyAudioTrackSelection(exoPlayer, track, audioTracks)?.let {
+                    selectedAudioIndex = it
+                    userPickedAudioForStream = true
+                    true
+                }
+            } == true
+            if (applied) return@LaunchedEffect
+        }
         val preferred = uiState.preferredAudioLanguage.trim()
         if (preferred.isBlank() || preferred.equals("none", ignoreCase = true)) return@LaunchedEffect
         val matchIndex = findPreferredAudioTrackIndex(audioTracks, preferred)
@@ -4096,6 +4108,7 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
                                         userPickedAudioForStream = true
                                         applyAudioTrackSelection(exoPlayer, track, audioTracks)?.let {
                                             selectedAudioIndex = it
+                                            viewModel.rememberAudioTrack(track.language, track.label, it)
                                         }
                                     }
                                     showSubtitleMenu = false
@@ -4574,6 +4587,7 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
                     userPickedAudioForStream = true
                     applyAudioTrackSelection(exoPlayer, track, audioTracks)?.let {
                         selectedAudioIndex = it
+                        viewModel.rememberAudioTrack(track.language, track.label, it)
                     }
                 },
                 onSelectSubtitleTrack = { sub ->
@@ -5331,6 +5345,7 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
                         userPickedAudioForStream = true
                         applyAudioTrackSelection(exoPlayer, track, audioTracks)?.let {
                             selectedAudioIndex = it
+                            viewModel.rememberAudioTrack(track.language, track.label, it)
                         }
                         showSubtitleMenu = false
                         showControls = true

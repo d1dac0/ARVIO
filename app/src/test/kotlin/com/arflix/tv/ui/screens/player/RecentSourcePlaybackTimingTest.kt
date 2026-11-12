@@ -70,6 +70,7 @@ class RecentSourcePlaybackTimingTest {
             streamIntegrationRepository = mockk(relaxed = true),
             recentPlayedSourceRepository = recentRepository,
 
+            playbackTrackMemoryStore = mockk(relaxed = true),
             kidsContentFilter = mockk(relaxed = true), idleReturnCoordinator = com.arflix.tv.data.repository.IdleReturnCoordinator(mockk(relaxed = true), mockk(relaxed = true))
         )
         store.put("player", model)

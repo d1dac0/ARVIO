@@ -75,7 +75,7 @@ class UserSubtitleSelectionTest {
             mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
             mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
             mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
-            mockk(relaxed = true),
+            mockk(relaxed = true), mockk(relaxed = true),
             com.arflix.tv.data.repository.IdleReturnCoordinator(mockk(relaxed = true), mockk(relaxed = true))
         )
         store.put("player", model)

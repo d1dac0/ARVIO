@@ -81,3 +81,7 @@ internal fun isUsableTraktCredentialPair(clientId: String?, clientSecret: String
         !id.startsWith("your-", ignoreCase = true) &&
         !secret.startsWith("your-", ignoreCase = true)
 }
+
+/** Reaches the sync status when a stored session exists but the API app was never configured. */
+internal const val TRAKT_CREDENTIALS_MISSING_MESSAGE =
+    "Trakt API credentials are missing. Open Settings → Accounts → Trakt.tv and connect again."

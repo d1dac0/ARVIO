@@ -34,4 +34,24 @@ class PlayerExitConfirmationTest {
     fun `a clock that jumps backwards does not exit`() {
         assertThat(shouldExitPlayerOnBack(lastBackAtMs = 10_000L, nowMs = 9_000L)).isFalse()
     }
+
+    @Test
+    fun `the second delivery of one physical press is a duplicate`() {
+        assertThat(
+            isDuplicateBackEvent(
+                lastHandledAtMs = 10_000L,
+                nowMs = 10_000L + PLAYER_BACK_DUPLICATE_WINDOW_MS
+            )
+        ).isTrue()
+    }
+
+    @Test
+    fun `a deliberate second press is not a duplicate`() {
+        assertThat(
+            isDuplicateBackEvent(
+                lastHandledAtMs = 10_000L,
+                nowMs = 10_000L + PLAYER_BACK_DUPLICATE_WINDOW_MS + 1L
+            )
+        ).isFalse()
+    }
 }

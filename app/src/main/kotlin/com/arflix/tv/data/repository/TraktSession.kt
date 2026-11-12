@@ -107,7 +107,7 @@ class TraktSession @Inject constructor(
             val held = backoff[profileId]
             if (held?.first == current && now < held.second) return@withLock usable()
             try {
-                check(TraktCredentials.clientSecret.isNotBlank()) { "Trakt credentials missing in this APK" }
+                check(TraktCredentials.clientSecret.isNotBlank()) { TRAKT_CREDENTIALS_MISSING_MESSAGE }
                 // Finish the bounded auth request and persist its single-use replacement even
                 // if the UI's short username timeout or a screen exit cancels the caller.
                 withContext(NonCancellable) {

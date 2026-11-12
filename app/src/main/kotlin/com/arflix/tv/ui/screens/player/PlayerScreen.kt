@@ -494,6 +494,7 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
     // confirmation and a second press inside the window exits. Any other key disarms it.
     var showExitConfirmation by remember { mutableStateOf(false) }
     var exitConfirmationArmedAtMs by remember { mutableLongStateOf(0L) }
+    var lastExitBackHandledAtMs by remember { mutableLongStateOf(0L) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var progress by remember { mutableFloatStateOf(0f) }
@@ -2245,19 +2246,26 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
     // second press. The first one arms the confirmation and shows a hint for two seconds.
     val requestExitPlayer: () -> Unit = {
         val now = android.os.SystemClock.elapsedRealtime()
-        if (shouldExitPlayerOnBack(exitConfirmationArmedAtMs, now)) {
-            exitConfirmationArmedAtMs = 0L
-            showExitConfirmation = false
-            onExitPlayer()
-        } else {
-            exitConfirmationArmedAtMs = now
-            showExitConfirmation = true
+        // Android 13+ can deliver one Back press to both the key handler and the back
+        // dispatcher; treat that pair as one press, not as the confirmation press.
+        if (!isDuplicateBackEvent(lastExitBackHandledAtMs, now)) {
+            lastExitBackHandledAtMs = now
+            if (shouldExitPlayerOnBack(exitConfirmationArmedAtMs, now)) {
+                exitConfirmationArmedAtMs = 0L
+                lastExitBackHandledAtMs = 0L
+                showExitConfirmation = false
+                onExitPlayer()
+            } else {
+                exitConfirmationArmedAtMs = now
+                showExitConfirmation = true
+            }
         }
     }
     LaunchedEffect(exitConfirmationArmedAtMs) {
         if (exitConfirmationArmedAtMs > 0L) {
             delay(PLAYER_EXIT_CONFIRM_WINDOW_MS)
             exitConfirmationArmedAtMs = 0L
+            lastExitBackHandledAtMs = 0L
             showExitConfirmation = false
         }
     }
@@ -3810,6 +3818,7 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
                     // any other key means the user kept interacting, so disarm it.
                     if (exitConfirmationArmedAtMs > 0L && event.key != Key.Back && event.key != Key.Escape) {
                         exitConfirmationArmedAtMs = 0L
+                        lastExitBackHandledAtMs = 0L
                         showExitConfirmation = false
                     }
                     if (event.nativeKeyEvent.repeatCount > 0 &&
@@ -4450,6 +4459,7 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
                 onDismiss = {
                     showExitConfirmation = false
                     exitConfirmationArmedAtMs = 0L
+                    lastExitBackHandledAtMs = 0L
                 }
             )
         }

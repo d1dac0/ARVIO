@@ -215,7 +215,7 @@ class TraktRepository @Inject constructor(
     private val deviceActivation = TraktDeviceActivation()
 
     suspend fun getDeviceCode(): TraktDeviceCode = deviceActivation.request {
-        check(clientId.isNotBlank() && clientSecret.isNotBlank()) { "Trakt credentials missing in this APK" }
+        check(clientId.isNotBlank() && clientSecret.isNotBlank()) { TRAKT_CREDENTIALS_MISSING_MESSAGE }
         traktAuthApi.getDeviceCode(DeviceCodeRequest(clientId))
     }
 
@@ -240,7 +240,7 @@ class TraktRepository @Inject constructor(
         directFallback: suspend () -> TraktToken
     ): TraktToken {
         if (clientSecret.isBlank()) {
-            throw IllegalStateException("Trakt credentials missing in this APK")
+            throw IllegalStateException(TRAKT_CREDENTIALS_MISSING_MESSAGE)
         }
         return directFallback()
     }

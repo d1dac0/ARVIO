@@ -23,9 +23,10 @@ class ApiProxyInterceptor : Interceptor {
 
         return when (originalUrl.host) {
             "api.themoviedb.org" -> {
-                // TMDB browsing is very high-volume. Proxy it only when the
-                // build explicitly opts in; otherwise use the direct API key
-                // and OkHttp cache to avoid runaway Function billing.
+                // Official builds bake a TMDB key and call the API directly; builds without
+                // one (forks, contributors) route through the credential-injecting proxy so
+                // Home still has a hero and rows. High-volume traffic stays direct when a
+                // key exists to avoid runaway Function billing.
                 if (BuildConfig.ENABLE_TMDB_EDGE_PROXY) {
                     val proxyRequest = rewriteForTmdbProxy(originalRequest) ?: originalRequest
                     chain.proceed(proxyRequest)

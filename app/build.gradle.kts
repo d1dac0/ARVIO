@@ -90,7 +90,17 @@ android {
         buildConfigField("String", "SPORTS_METADATA_URL", "\"${escapeBuildConfigString(localSecretValue("SPORTS_METADATA_URL"))}\"")
         // Emergency Supabase cost guard. Keep high-volume public metadata and
         // idle realtime polling off Supabase unless explicitly re-enabled.
-        buildConfigField("Boolean", "ENABLE_TMDB_EDGE_PROXY", "false")
+        //
+        // Home's hero and rows come from TMDB. Official builds bake a key into the APK;
+        // fork/contributor builds do not, and a blank key used to produce an empty Home.
+        // Those builds use the deployed ARVIO proxy instead (server-side TMDB key), while
+        // builds with their own key keep calling TMDB directly.
+        val tmdbApiKey = localSecretValue("TMDB_API_KEY")
+            .takeUnless { it.startsWith("your-", ignoreCase = true) }
+            .orEmpty()
+        val tmdbEdgeProxy = providers.gradleProperty("arvioTmdbEdgeProxy").orNull
+            ?.toBooleanStrictOrNull() ?: tmdbApiKey.isBlank()
+        buildConfigField("Boolean", "ENABLE_TMDB_EDGE_PROXY", tmdbEdgeProxy.toString())
         buildConfigField("Boolean", "ENABLE_TRAKT_EDGE_PROXY", "false")
         buildConfigField("Boolean", "ENABLE_REALTIME_CLOUD_SYNC", "true")
         buildConfigField("Boolean", "ENABLE_REALTIME_WATCH_SYNC", "false")

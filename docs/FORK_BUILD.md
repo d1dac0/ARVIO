@@ -72,6 +72,18 @@ is what the fork workflow uses. The APK then falls back to the placeholders in
 `secrets.defaults.properties`: Telegram sign-in and Trakt syncing stay disabled,
 everything else works.
 
+### TMDB metadata
+
+Home's hero and default rows are built from TMDB. A build without a real
+`TMDB_API_KEY` sets `ENABLE_TMDB_EDGE_PROXY=true` and calls the deployed
+`auth.arvio.tv` TMDB proxy, which injects the key server-side, so fork APKs show
+content without per-device setup. Add `TMDB_API_KEY` (repository secret or
+`secrets.properties`) to call TMDB directly instead. `-ParvioTmdbEdgeProxy=true`
+or `false` forces either mode for a one-off build.
+
+Without a key and without the proxy, Home is empty; the rest of the app remains
+usable for addons and home servers.
+
 ## Optional integration credentials
 
 Adding these repository secrets makes the corresponding features real; the

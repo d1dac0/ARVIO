@@ -529,13 +529,15 @@ data class DeviceCodeRequest(
 data class TokenPollRequest(
     @SerializedName("code") val code: String,
     @SerializedName("client_id") val clientId: String,
-    @SerializedName("client_secret") val clientSecret: String
+    /** Optional since Trakt stopped issuing a secret to new apps; omitted when null. */
+    @SerializedName("client_secret") val clientSecret: String? = null
 )
 
 data class RefreshTokenRequest(
     @SerializedName("refresh_token") val refreshToken: String,
     @SerializedName("client_id") val clientId: String,
-    @SerializedName("client_secret") val clientSecret: String,
+    /** Optional since Trakt stopped issuing a secret to new apps; omitted when null. */
+    @SerializedName("client_secret") val clientSecret: String? = null,
     @SerializedName("grant_type") val grantType: String = "refresh_token"
 )
 

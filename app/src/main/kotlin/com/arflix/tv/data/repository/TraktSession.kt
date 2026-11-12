@@ -107,14 +107,13 @@ class TraktSession @Inject constructor(
             val held = backoff[profileId]
             if (held?.first == current && now < held.second) return@withLock usable()
             try {
-                check(TraktCredentials.clientSecret.isNotBlank()) { TRAKT_CREDENTIALS_MISSING_MESSAGE }
                 // Finish the bounded auth request and persist its single-use replacement even
                 // if the UI's short username timeout or a screen exit cancels the caller.
                 withContext(NonCancellable) {
                     val token = api.refreshToken(RefreshTokenRequest(
                         refreshToken = current.refresh,
                         clientId = TraktCredentials.clientId,
-                        clientSecret = TraktCredentials.clientSecret
+                        clientSecret = TraktCredentials.clientSecret.takeIf { it.isNotBlank() }
                     ))
                     // Do not overwrite a login, logout or cloud restore during the request.
                     var rotated = false

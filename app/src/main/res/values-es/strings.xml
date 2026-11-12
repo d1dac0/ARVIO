@@ -399,11 +399,11 @@
     <string name="settings_use_email_password_short">Usar correo/contraseña</string>
     <string name="settings_connect_trakt">Conectar Trakt.tv</string>
     <string name="settings_trakt_credentials_title">Conectar Trakt.tv</string>
-    <string name="settings_trakt_credentials_desc">Esta compilación no incluye credenciales de la API de Trakt. Crea tu propia aplicación de API de Trakt y pega abajo su Client ID y Client Secret. Se guardan solo en este dispositivo.</string>
+    <string name="settings_trakt_credentials_desc">Esta compilación no incluye credenciales de la API de Trakt. Crea tu propia aplicación de API de Trakt y pega abajo su Client ID. El Client Secret es opcional: las aplicaciones actuales de Trakt no lo emiten. Ambos valores se guardan solo en este dispositivo.</string>
     <string name="settings_trakt_credentials_create_app">Abrir trakt.tv/oauth/applications</string>
     <string name="settings_trakt_credentials_client_id">Client ID</string>
-    <string name="settings_trakt_credentials_client_secret">Client Secret</string>
-    <string name="settings_trakt_credentials_invalid">Introduce un Client ID y un Client Secret (mínimo 16 caracteres).</string>
+    <string name="settings_trakt_credentials_client_secret">Client Secret (opcional)</string>
+    <string name="settings_trakt_credentials_invalid">Introduce un Client ID válido (mínimo 16 caracteres). Si pegas un Client Secret, debe tener al menos 16 caracteres.</string>
     <string name="settings_trakt_instruction">Ve a %1$s e introduce este código</string>
     <string name="settings_waiting_for_authorization">Esperando autorización</string>
     <string name="settings_open_auth_page">Abrir página de autorización</string>

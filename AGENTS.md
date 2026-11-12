@@ -15,7 +15,7 @@ the change is fork-specific.
 | Auto-release | push to `main` → builds signed `sideloadRelease`, publishes `v<versionName>` | This is the app's update channel |
 | Self-updater target | `GITHUB_OWNER`/`GITHUB_REPO` in `app/build.gradle.kts` → `d1dac0`/`ARVIO` | Otherwise the app follows upstream releases |
 | Version overrides | `-ParvioVersionCode=…`, `-ParvioVersionName=…` | `versionCode = 322 + run number`, `versionName = <base>-fork.<run>` |
-| Credential gate waiver | `-ParvioAllowMissingIntegrations=true` | Fork has no Telegram/Trakt credentials; those features stay off until repository secrets are set or, for Trakt, credentials are entered in Settings |
+| Credential gate waiver | `-ParvioAllowMissingIntegrations=true` | Fork has no Telegram/Trakt credentials; those features stay off until repository secrets are set or, for Trakt, a Client ID is entered in Settings |
 
 Every push to `main` publishes a release, so a merge is a ship. Use `[skip ci]` in the commit
 message for docs-only or CI-irrelevant commits.

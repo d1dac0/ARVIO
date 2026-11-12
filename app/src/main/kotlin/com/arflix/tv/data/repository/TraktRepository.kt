@@ -215,34 +215,22 @@ class TraktRepository @Inject constructor(
     private val deviceActivation = TraktDeviceActivation()
 
     suspend fun getDeviceCode(): TraktDeviceCode = deviceActivation.request {
-        check(clientId.isNotBlank() && clientSecret.isNotBlank()) { TRAKT_CREDENTIALS_MISSING_MESSAGE }
+        check(clientId.isNotBlank()) { TRAKT_CREDENTIALS_MISSING_MESSAGE }
         traktAuthApi.getDeviceCode(DeviceCodeRequest(clientId))
     }
 
     suspend fun pollForToken(deviceCode: String): TraktToken {
         val profileId = currentProfileId()
-        val token = requestTraktToken(
-            directFallback = {
-                traktAuthApi.pollToken(
-                    TokenPollRequest(
-                        code = deviceCode,
-                        clientId = clientId,
-                        clientSecret = clientSecret
-                    )
-                )
-            }
+        check(clientId.isNotBlank()) { TRAKT_CREDENTIALS_MISSING_MESSAGE }
+        val token = traktAuthApi.pollToken(
+            TokenPollRequest(
+                code = deviceCode,
+                clientId = clientId,
+                clientSecret = clientSecret.takeIf { it.isNotBlank() }
+            )
         )
         traktSession.save(token, profileId)
         return token
-    }
-
-    private suspend fun requestTraktToken(
-        directFallback: suspend () -> TraktToken
-    ): TraktToken {
-        if (clientSecret.isBlank()) {
-            throw IllegalStateException(TRAKT_CREDENTIALS_MISSING_MESSAGE)
-        }
-        return directFallback()
     }
 
     suspend fun refreshTokenIfNeeded(force: Boolean = false, rejectedAccessToken: String? = null): String? =

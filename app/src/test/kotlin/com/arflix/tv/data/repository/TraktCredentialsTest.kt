@@ -5,9 +5,15 @@ import org.junit.Test
 
 class TraktCredentialsTest {
     @Test
-    fun `a complete pair is usable`() {
+    fun `a client id alone is usable for current Trakt apps`() {
+        assertThat(isUsableTraktCredentials("a".repeat(64), "")).isTrue()
+        assertThat(isUsableTraktCredentials("a".repeat(64), null)).isTrue()
+    }
+
+    @Test
+    fun `an older app with a secret is still usable`() {
         assertThat(
-            isUsableTraktCredentialPair(
+            isUsableTraktCredentials(
                 "a".repeat(64),
                 "b".repeat(64)
             )
@@ -16,14 +22,18 @@ class TraktCredentialsTest {
 
     @Test
     fun `placeholders are rejected`() {
-        assertThat(isUsableTraktCredentialPair("your-trakt-client-id", "your-trakt-client-secret")).isFalse()
+        assertThat(isUsableTraktCredentials("your-trakt-client-id", "your-trakt-client-secret")).isFalse()
     }
 
     @Test
-    fun `missing or truncated values are rejected`() {
-        assertThat(isUsableTraktCredentialPair("", "b".repeat(64))).isFalse()
-        assertThat(isUsableTraktCredentialPair("a".repeat(64), "   ")).isFalse()
-        assertThat(isUsableTraktCredentialPair("abc", "def")).isFalse()
-        assertThat(isUsableTraktCredentialPair(null, null)).isFalse()
+    fun `missing or truncated client ids are rejected`() {
+        assertThat(isUsableTraktCredentials("", "b".repeat(64))).isFalse()
+        assertThat(isUsableTraktCredentials("abc", "def")).isFalse()
+        assertThat(isUsableTraktCredentials(null, null)).isFalse()
+    }
+
+    @Test
+    fun `a partially pasted secret is rejected instead of silently dropped`() {
+        assertThat(isUsableTraktCredentials("a".repeat(64), "short")).isFalse()
     }
 }

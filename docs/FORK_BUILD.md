@@ -87,10 +87,12 @@ workflow forwards them as environment variables, and they take priority over
 
 A fork APK built without `TRAKT_CLIENT_ID` / `TRAKT_CLIENT_SECRET` can still
 connect Trakt. Open **Settings → Accounts → Trakt.tv → Connect**: the app asks for
-the Client ID and Client Secret of a Trakt API app and keeps them on the device.
-Create one at <https://trakt.tv/oauth/applications> (the redirect URI is not used
-by device activation), then paste both values. The saved pair takes precedence
-over the build placeholders; clearing the app's data removes it.
+the Client ID of a Trakt API app and keeps it on the device. Current Trakt apps
+do not issue a Client Secret; the field is optional and only needed for an older
+app that still has one. Create an app at
+<https://trakt.tv/oauth/applications> (the redirect URI is not used by device
+activation), then paste the Client ID. The saved value takes precedence over the
+build placeholders; clearing the app's data removes it.
 
 This is the fallback for builds without baked-in credentials. Shipping the values
 through the repository secrets above is still preferred: it needs no per-device

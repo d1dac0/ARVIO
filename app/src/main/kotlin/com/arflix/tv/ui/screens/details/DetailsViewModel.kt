@@ -3054,9 +3054,13 @@ class DetailsViewModel @Inject constructor(
             } else {
                 emptySet()
             }
-            fun ResumeInfo?.dropIfWatchedEpisode(): ResumeInfo? {
+            fun ResumeInfo?.dropIfWatchedEpisode(allowWatchedDrop: Boolean): ResumeInfo? {
                 val info = this ?: return null
                 if (mediaType != MediaType.TV) return info
+                // A tracker marks an episode watched at 80%, but a local resume point below
+                // the watched threshold is still real playback in progress. Dropping it made
+                // returning to a partly watched episode fall through to "Play episode 1".
+                if (!allowWatchedDrop) return info
                 val s = info.season ?: return null
                 val e = info.episode ?: return null
                 val key = "show_tmdb:$tmdbId:$s:$e"
@@ -3073,7 +3077,10 @@ class DetailsViewModel @Inject constructor(
                     progress = entry.progress,
                     positionSeconds = entry.position_seconds,
                     durationSeconds = entry.duration_seconds
-                ).dropIfWatchedEpisode()
+                ).dropIfWatchedEpisode(
+                    allowWatchedDrop = entry.episode == null ||
+                        entry.progress * 100f >= Constants.WATCHED_THRESHOLD
+                )
             } else null
 
             val hasRemoteTracking = runCatching { remoteSyncManager.isRemoteConnected() }.getOrDefault(false)
@@ -3151,7 +3158,10 @@ class DetailsViewModel @Inject constructor(
                         resumeCandidate.durationSeconds
                     ),
                     allowProgressDerivedResume = !resumeCandidate.isUpNext
-                ).dropIfWatchedEpisode()
+                ).dropIfWatchedEpisode(
+                    allowWatchedDrop = resumeCandidate.isUpNext ||
+                        resumeCandidate.progress >= Constants.WATCHED_THRESHOLD
+                )
             } else null
 
             when {
@@ -3185,7 +3195,9 @@ class DetailsViewModel @Inject constructor(
     private suspend fun fetchResumeInfoFromHistoryOnly(tmdbId: Int, mediaType: MediaType): ResumeInfo? {
         return try {
             val entry = watchHistoryRepository.getLatestProgress(mediaType, tmdbId) ?: return null
-            if (mediaType == MediaType.TV && entry.season != null && entry.episode != null) {
+            if (mediaType == MediaType.TV && entry.season != null && entry.episode != null &&
+                entry.progress * 100f >= Constants.WATCHED_THRESHOLD
+            ) {
                 val watchedKey = "show_tmdb:$tmdbId:${entry.season}:${entry.episode}"
                 val isWatched = try {
                     traktRepository.getWatchedEpisodesFromCache().contains(watchedKey) ||

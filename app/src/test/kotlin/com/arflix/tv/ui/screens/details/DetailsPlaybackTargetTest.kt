@@ -114,6 +114,31 @@ class DetailsPlaybackTargetTest {
         assertTarget(model, 2, 2, 90_000L)
     }
 
+    @Test fun anInProgressLocalEpisodeSurvivesAnEarlyTrackerWatchedMark() = runTest {
+        watched = setOf("show_tmdb:42:2:2")
+        val local = ContinueWatchingItem(
+            id = 42,
+            title = "Playback target fixture",
+            mediaType = MediaType.TV,
+            progress = 85,
+            resumePositionSeconds = 1_200,
+            durationSeconds = 3_600,
+            season = 2,
+            episode = 2,
+            updatedAtMs = 1L,
+        )
+        val model = open(
+            item(MediaType.TV),
+            initialSeason = 2,
+            initialEpisode = 2,
+            localEntry = local,
+        )
+        history.complete(null)
+        runCurrent()
+
+        assertTarget(model, 2, 2, 1_200_000L)
+    }
+
     @Test fun noResumeWaitsForWatchedProgressThenSelectsNextUnwatchedEpisode() = runTest {
         watched = setOf("show_tmdb:42:1:1", "show_tmdb:42:1:2", "show_tmdb:42:2:1")
         val model = open(item(MediaType.TV), progressReady = false)
@@ -339,6 +364,7 @@ class DetailsPlaybackTargetTest {
         progressReady: Boolean = true,
         initialSeason: Int? = null,
         initialEpisode: Int? = null,
+        localEntry: ContinueWatchingItem? = null,
     ): DetailsViewModel {
         if (metadataReady) metadata.complete(item)
         if (progressReady) progress.complete(Unit)
@@ -356,7 +382,7 @@ class DetailsPlaybackTargetTest {
         trakt = mockk<TraktRepository>(relaxed = true)
         every { trakt.getWatchedEpisodesFromCache() } answers { watched }
         coEvery { trakt.getWatchedEpisodesForShow(42) } answers { watched }
-        coEvery { trakt.getLocalContinueWatchingEntry(any(), any(), any(), any()) } returns null
+        coEvery { trakt.getLocalContinueWatchingEntry(any(), any(), any(), any()) } returns localEntry
         coEvery { trakt.getBestLocalContinueWatchingEntry(any(), any()) } returns null
         val remote = mockk<RemoteSyncManager>(relaxed = true)
         coEvery { remote.isRemoteConnected(any()) } returns false

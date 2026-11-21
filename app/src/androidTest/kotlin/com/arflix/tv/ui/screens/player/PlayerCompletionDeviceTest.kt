@@ -164,16 +164,17 @@ class PlayerCompletionDeviceTest {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     val range = request.getHeader("Range")
-                    val start = range?.substringAfter("bytes=")?.substringBefore('-')?.toIntOrNull() ?: 0
                     val response = MockResponse()
                         .addHeader("Content-Type", "video/mp4")
                         .addHeader("Accept-Ranges", "bytes")
-                    if (start !in video.indices) return response.setResponseCode(416)
+                    val served = range?.removePrefix("bytes=")?.let { parseByteRange(it, video.size) }
+                    if (range != null && served == null) return response.setResponseCode(416)
+                    val (start, endInclusive) = served ?: (0 to video.lastIndex)
                     if (range != null) {
                         response.setResponseCode(206)
-                        response.addHeader("Content-Range", "bytes $start-${video.lastIndex}/${video.size}")
+                        response.addHeader("Content-Range", "bytes $start-$endInclusive/${video.size}")
                     }
-                    return response.setBody(Buffer().write(video, start, video.size - start))
+                    return response.setBody(Buffer().write(video, start, endInclusive - start + 1))
                 }
             }
             start()
@@ -222,6 +223,23 @@ class PlayerCompletionDeviceTest {
 
     private fun endVideo() {
         compose.runOnUiThread { player.seekTo(player.duration - 150); player.play() }
+    }
+
+    /** Parses "start-end", "start-" or "-suffix" into an inclusive start..end pair; null when unsatisfiable. */
+    private fun parseByteRange(spec: String, size: Int): Pair<Int, Int>? {
+        val lastIndex = size - 1
+        if (lastIndex < 0) return null
+        if (spec.startsWith("-")) {
+            val suffix = spec.drop(1).trim().toIntOrNull() ?: return null
+            if (suffix <= 0) return null
+            return (size - suffix).coerceAtLeast(0) to lastIndex
+        }
+        val start = spec.substringBefore('-').trim().toIntOrNull() ?: return null
+        if (start < 0 || start > lastIndex) return null
+        val end = spec.substringAfter('-', "").trim().takeIf { it.isNotEmpty() }
+            ?.toIntOrNull()?.coerceAtMost(lastIndex) ?: lastIndex
+        if (end < start) return null
+        return start to end
     }
 
     private fun assertReturned() {

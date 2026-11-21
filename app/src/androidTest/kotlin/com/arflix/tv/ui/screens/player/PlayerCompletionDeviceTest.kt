@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.lifecycle.Lifecycle
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
@@ -91,6 +92,27 @@ class PlayerCompletionDeviceTest {
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
         compose.waitUntil(5_000) { nextPlays == 1 }
         compose.runOnIdle { assertEquals(0, exits); assertEquals(1, nextPlays) }
+    }
+
+    @Test fun stoppingTheTvPlayerReleasesPlaybackAndResumesAtTheSavedPosition() {
+        show(MediaType.MOVIE)
+        var positionBeforeStop = 0L
+        compose.runOnUiThread { positionBeforeStop = player.currentPosition }
+
+        compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        compose.runOnUiThread {
+            assertEquals(Player.STATE_IDLE, player.playbackState)
+            assertFalse(player.isPlaying)
+        }
+
+        compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.waitUntil(10_000) {
+            var resumed = false
+            compose.runOnUiThread {
+                resumed = player.isPlaying && player.currentPosition >= positionBeforeStop
+            }
+            resumed
+        }
     }
 
     @Test fun liveStreamEndDoesNotNavigateAway() {

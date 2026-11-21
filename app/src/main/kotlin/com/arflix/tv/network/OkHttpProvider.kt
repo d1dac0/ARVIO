@@ -1,12 +1,7 @@
 package com.arflix.tv.network
 
-import android.app.ActivityManager
 import android.content.Context
 import android.util.Log
-import coil.ImageLoader
-import coil.decode.SvgDecoder
-import coil.disk.DiskCache
-import coil.memory.MemoryCache
 import com.arflix.tv.BuildConfig
 import okhttp3.Cache
 import okhttp3.ConnectionPool
@@ -47,7 +42,6 @@ object OkHttpProvider {
     private const val TAG = "AppDns"
     /** 50 MB disk cache for API responses (TMDB metadata, Trakt data, etc.) */
     private const val HTTP_CACHE_SIZE = 50L * 1024L * 1024L
-    private const val IMAGE_DISK_CACHE_SIZE = 48L * 1024L * 1024L
     private const val CLOUDFLARE_DOH_HOST = "cloudflare-dns.com"
     private const val CLOUDFLARE_DOH_URL = "https://cloudflare-dns.com/dns-query"
     private const val GOOGLE_DOH_HOST = "dns.google"
@@ -397,6 +391,7 @@ object OkHttpProvider {
         dnsScope.launch {
             appConnectionPool.evictAll()
             playbackConnectionPool.evictAll()
+            coilSharedClient?.connectionPool?.evictAll()
             Log.i(TAG, "Evicted pooled app connections after DNS change")
         }
     }
@@ -481,38 +476,6 @@ object OkHttpProvider {
             .connectionPool(ConnectionPool(8, 30, TimeUnit.SECONDS))
             .dns(dns)
             .retryOnConnectionFailure(true)
-            .build()
-    }
-
-    fun createCoilImageLoader(context: Context): ImageLoader {
-        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-        // Keep the image cache modest: TV boxes cap the heap at ~384MB and the Live
-        // TV page (player buffers + channel data) needs the headroom. Disk cache
-        // still holds 48MB, so posters reload quickly without pinning Java heap.
-        val imageCacheBytes = if (activityManager?.isLowRamDevice == true) {
-            24 * 1024 * 1024
-        } else {
-            32 * 1024 * 1024
-        }
-        return ImageLoader.Builder(context)
-            .okHttpClient(coilClient)
-            .memoryCache {
-                MemoryCache.Builder(context)
-                    .maxSizeBytes(imageCacheBytes)
-                    .build()
-            }
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(context.cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(IMAGE_DISK_CACHE_SIZE)
-                    .build()
-            }
-            .crossfade(false)
-            .respectCacheHeaders(false)
-            .allowRgb565(true)
-            .components {
-                add(SvgDecoder.Factory())
-            }
             .build()
     }
 }

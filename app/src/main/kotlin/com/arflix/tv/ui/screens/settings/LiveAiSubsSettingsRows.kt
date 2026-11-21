@@ -16,6 +16,8 @@ import com.arflix.tv.ui.components.SettingsToggleRow
 import com.arflix.tv.ui.screens.tv.live.aisubs.GeminiSegmentEngine
 import com.arflix.tv.ui.screens.tv.live.aisubs.LiveAiSubsPrefs
 import com.arflix.tv.ui.screens.tv.live.aisubs.LiveAiSubsSettings
+import com.arflix.tv.util.AppLogger
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,7 +33,10 @@ import kotlinx.coroutines.launch
 /** TV settings row indices, after the existing ones (0–50). */
 internal val LIVE_AI_SUBS_ROWS = listOf(51, 52)
 
-private val actionScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+private val actionScope = CoroutineScope(
+    SupervisorJob() + Dispatchers.Main.immediate +
+        CoroutineExceptionHandler { _, error -> AppLogger.recordException(error) },
+)
 
 /** Handles OK/click on one of [LIVE_AI_SUBS_ROWS]. */
 internal fun onLiveAiSubsRowClick(context: Context, index: Int) {

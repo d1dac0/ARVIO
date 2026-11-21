@@ -2873,6 +2873,12 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
                 }
                 streamSelectedTime = System.currentTimeMillis()
             }
+            // Source resolution may finish after the last ON_STOP callback. Wait for
+            // the screen to start before opening a session or allocating a decoder.
+            lifecycleOwner.lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.STARTED) }
+            if (latestUiState.selectedStreamUrl != url || playerReleased || exitTransition.isExiting ||
+                viewModel.idleReturnCoordinator.shouldDiscardPlayer
+            ) return@LaunchedEffect
             val iptvVodSession = iptvVodGate.open(exoPlayer, iptvPolicy)
             if (iptvVodSession != null && !lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
                 iptvVodGate.deferOpen(exoPlayer, uiState.savedPosition)

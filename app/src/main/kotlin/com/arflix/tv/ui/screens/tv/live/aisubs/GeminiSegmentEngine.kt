@@ -119,12 +119,14 @@ internal class GeminiSegmentEngine(
 
     /** A cheap call that tells whether [key] is accepted: true, false, or null when it could not be checked. */
     suspend fun validateKey(key: String): Boolean? = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url(GEMINI_MODEL_INFO_URL)
-            .header("x-goog-api-key", key.trim())
-            .get()
-            .build()
         try {
+            // OkHttp rejects header values with non-ASCII characters (e.g. a pasted zero-width
+            // space) with IllegalArgumentException, so build the request inside the try.
+            val request = Request.Builder()
+                .url(GEMINI_MODEL_INFO_URL)
+                .header("x-goog-api-key", key.trim())
+                .get()
+                .build()
             client.newCall(request).execute().use { response ->
                 when {
                     response.isSuccessful -> true
@@ -134,6 +136,8 @@ internal class GeminiSegmentEngine(
             }
         } catch (error: CancellationException) {
             throw error
+        } catch (_: IllegalArgumentException) {
+            false
         } catch (_: IOException) {
             null
         }

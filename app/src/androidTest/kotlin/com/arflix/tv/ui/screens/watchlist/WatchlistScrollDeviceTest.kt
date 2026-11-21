@@ -2,7 +2,10 @@ package com.arflix.tv.ui.screens.watchlist
 
 import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -14,6 +17,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.repository.HomeServerCatalogCandidate
 import com.arflix.tv.data.repository.HomeServerKind
+import com.arflix.tv.data.repository.KidsContentFilter
 import com.arflix.tv.util.DeviceType
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.profilesDataStore
@@ -74,6 +78,24 @@ class WatchlistScrollDeviceTest {
         keys(List(12) { Key.DirectionDown })
         assertTrue(compose.onNodeWithTag("library-grid").fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value() > 0f)
     }
+    @Test fun returningFromDetailsRestoresFocusToTheOpenedLibraryCard() {
+        val detailsOpen = mutableStateOf(false)
+        show(DeviceType.TV) { model ->
+            val holder = rememberSaveableStateHolder()
+            if (!detailsOpen.value) {
+                holder.SaveableStateProvider("library") {
+                    WatchlistScreen(model, onNavigateToDetails = { _, _ -> detailsOpen.value = true })
+                }
+            }
+        }
+        compose.onNodeWithText("Homeserver").performClick()
+        compose.onNodeWithTag("library-grid").performScrollToIndex(12)
+        val card = compose.onAllNodes(hasAnyAncestor(hasTestTag("library-card-12")) and hasClickAction()).onFirst()
+        card.performClick()
+        compose.runOnIdle { assertTrue(detailsOpen.value); detailsOpen.value = false }
+        card.assertIsFocused()
+    }
+
     @Test fun posterGridKeepsPositionWhenMoreItemsArrive() = verifyAppend(true)
     @Test fun serverGridRequestsEveryPageBeyondSixty() {
         show(DeviceType.TV)
@@ -105,7 +127,11 @@ class WatchlistScrollDeviceTest {
         assertEquals(before, after, .01f)
     }
 
-    private fun show(device: DeviceType, poster: Boolean = false) {
+    private fun show(
+        device: DeviceType,
+        poster: Boolean = false,
+        content: @Composable (WatchlistViewModel) -> Unit = { WatchlistScreen(it) }
+    ) {
         runBlocking {
             val profile = compose.activity.profilesDataStore.data.first()[stringPreferencesKey("active_profile_id")]
                 .orEmpty().ifBlank { "default" }
@@ -115,6 +141,9 @@ class WatchlistScrollDeviceTest {
             compose.activity.settingsDataStore.edit { it[key] = if (poster) "Poster" else "Landscape" }
         }
         every { viewModel.uiState } returns MutableStateFlow(WatchlistUiState(isLoading = false))
+        every { viewModel.kidsFilterState } returns MutableStateFlow(KidsContentFilter.State(null, "US", emptyMap()))
+        every { viewModel.applyKidsFilter(any<WatchlistUiState>(), any()) } answers { firstArg() }
+        every { viewModel.applyKidsFilter(any<HomeLibraryUiState>(), any()) } answers { firstArg() }
         coEvery { viewModel.loadLibraryPreview(any()) } answers { LibraryPreview(firstArg()) }
         every { viewModel.libraryState } returns state
         every { viewModel.logoUrls } returns MutableStateFlow(emptyMap())
@@ -127,7 +156,7 @@ class WatchlistScrollDeviceTest {
         every { viewModel.selectLibrary(any()) } answers {
             state.value = state.value.copy(selectedSourceRef = firstArg(), items = items(60), isLoading = false)
         }
-        compose.setContent { CompositionLocalProvider(LocalDeviceType provides device) { WatchlistScreen(viewModel) } }
+        compose.setContent { CompositionLocalProvider(LocalDeviceType provides device) { content(viewModel) } }
         compose.waitForIdle()
     }
 

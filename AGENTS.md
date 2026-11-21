@@ -1,10 +1,12 @@
 # AGENTS.md — working in this repository
 
-This is **d1dac0/ARVIO**, a fork of [ProdigyV21/ARVIO](https://github.com/ProdigyV21/ARVIO): an
-open-source media hub with an Android TV/phone app (`app/`, Kotlin + Compose + Hilt), a self-hosted
-Next.js web app (`web/`), a resolver worker, Supabase migrations, and Netlify marketing/auth sites.
-Upstream is Apache-2.0 (see `LICENSE`); keep upstream files as close to theirs as possible unless
-the change is fork-specific.
+This is **d1dac0/ARVIO**, which started as a fork of [ProdigyV21/ARVIO](https://github.com/ProdigyV21/ARVIO)
+and is now developed as an independent app: an open-source media hub with an Android TV/phone app
+(`app/`, Kotlin + Compose + Hilt), a self-hosted Next.js web app (`web/`), a resolver worker, Supabase
+migrations, and Netlify marketing/auth sites. Upstream is Apache-2.0 (see `LICENSE`); keep its license
+and notices. Staying close to upstream's files is not a goal: change, restructure or delete upstream
+code whenever that is the better fix. The app still calls upstream's deployed backend
+(`NETLIFY_BACKEND_URL`), so app changes that need new backend behavior must fit that backend.
 
 ## Fork-specific setup (do not break these)
 

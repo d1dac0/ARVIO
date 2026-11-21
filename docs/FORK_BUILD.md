@@ -78,7 +78,10 @@ Home's hero and default rows are built from TMDB. A build without a real
 `TMDB_API_KEY` sets `ENABLE_TMDB_EDGE_PROXY=true` and calls the deployed
 `auth.arvio.tv` TMDB proxy, which injects the key server-side, so fork APKs show
 content without per-device setup. Add `TMDB_API_KEY` (repository secret or
-`secrets.properties`) to call TMDB directly instead. `-ParvioTmdbEdgeProxy=true`
+`secrets.properties`) to call TMDB directly instead. Use the TMDB **API Key** (v3),
+not the API Read Access Token: the app sends it as the `api_key` query parameter.
+`fork-release.yml` passes the `TMDB_API_KEY` repository secret to the release build.
+`-ParvioTmdbEdgeProxy=true`
 or `false` forces either mode for a one-off build.
 
 Without a key and without the proxy, Home is empty; the rest of the app remains

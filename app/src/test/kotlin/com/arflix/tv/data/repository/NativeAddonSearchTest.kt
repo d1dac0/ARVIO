@@ -5,6 +5,7 @@ import com.arflix.tv.data.api.*
 import com.arflix.tv.data.model.*
 import io.mockk.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,11 +18,21 @@ import org.robolectric.annotation.ConscryptMode
 @Config(sdk = [28], application = Application::class, manifest = Config.NONE)
 @ConscryptMode(ConscryptMode.Mode.OFF)
 class NativeAddonSearchTest {
-    private fun repository(api: StreamApi): StreamRepository = StreamRepository(
-        RuntimeEnvironment.getApplication(), api,
-        mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
-        mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
-        mockk(relaxed = true))
+    private fun repository(api: StreamApi): StreamRepository {
+        val profileManager = mockk<ProfileManager>(relaxed = true)
+        // personalAddons combines streamDataStore.data with profileManager.activeProfileId.
+        // On a relaxed mock that property is a mock Flow whose collect() completes without
+        // ever emitting, so combine() can never produce its first value and anything that
+        // reads installedAddons.first() (as searchNativeAddonCatalogs does) hangs forever -
+        // the outer test guard times out and the test reports a flaky timeout. Stub it with
+        // a real emitting flow.
+        every { profileManager.activeProfileId } returns MutableStateFlow("")
+        return StreamRepository(
+            RuntimeEnvironment.getApplication(), api,
+            mockk(relaxed = true), profileManager, mockk(relaxed = true), mockk(relaxed = true),
+            mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
+            mockk(relaxed = true), mockk(relaxed = true))
+    }
 
     @Test fun nativeSearchRetainsFastResultsAndEpisodePlaybackUsesExactVideoId() = runBlocking {
         val api = mockk<StreamApi>()
@@ -37,7 +48,14 @@ class NativeAddonSearchTest {
         coEvery { api.getAddonCatalog(match { it.contains("/fast/") }) } returns
             StremioCatalogResponse(metas = listOf(StremioMetaPreview(id = "provider:1", name = "Result")))
         coEvery { api.getAddonCatalog(match { it.contains("/slow/") }) } coAnswers { awaitCancellation() }
-        val pages = withTimeout(10_000) { repository.searchNativeAddonCatalogs("result", timeoutMs = 1_000) }
+        // The outer budget is only a hang guard; the search itself must return in roughly
+        // the 1s per-catalog budget the slow catalog is cut by.
+        val searchStart = System.currentTimeMillis()
+        val pages = withTimeout(60_000) { repository.searchNativeAddonCatalogs("result", timeoutMs = 1_000) }
+        val searchElapsedMs = System.currentTimeMillis() - searchStart
+        assertTrue(
+            "searchNativeAddonCatalogs(timeoutMs=1_000) took ${searchElapsedMs}ms; expected ~1s (outer hang guard: 60s)",
+            searchElapsedMs < 15_000)
         assertEquals(listOf("fast"), pages.map { it.catalogId })
         assertEquals("provider:1", pages.single().metas.single().id)
         assertTrue(repository.addonServesOwnMeta(addon.id, "series", "provider:show"))

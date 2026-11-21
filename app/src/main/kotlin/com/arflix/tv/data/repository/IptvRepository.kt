@@ -9086,7 +9086,7 @@ class IptvRepository @Inject constructor(
                             val result = gson.fromJson<T>(reader, type)
                             if (continuation.isActive) continuation.resume(result)
                         }
-                    } catch (error: Throwable) {
+                    } catch (error: Exception) {
                         System.err.println("IptvRepository: JSON request failed for ${redactIptvUrl(url)}: ${error.message}")
                         if (continuation.isActive) continuation.resume(null)
                     }

@@ -1,6 +1,5 @@
 package com.arflix.tv.ui.screens.player
 
-import android.net.Uri
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -32,6 +31,12 @@ import java.io.File
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
+import okio.Buffer
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -48,6 +53,11 @@ class PlayerCompletionDeviceTest {
     private lateinit var player: Player
     private var exits = 0
     private var nextPlays = 0
+    private var fixtureServer: MockWebServer? = null
+
+    @After fun stopFixtureServer() {
+        fixtureServer?.shutdown()
+    }
 
     @Test fun movieReturnsToDetailsAtNaturalEndWithoutBack() {
         show(MediaType.MOVIE)
@@ -149,9 +159,27 @@ class PlayerCompletionDeviceTest {
         live: Boolean = false,
     ) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val file = File(instrumentation.targetContext.cacheDir, "completion-test.mp4")
-        instrumentation.context.assets.open("seek_preview_device_test.mp4").use { input -> file.outputStream().use(input::copyTo) }
-        val source = StreamSource("Local completion clip", "Fixture", "fixture", "1080p", "", url = Uri.fromFile(file).toString())
+        val video = instrumentation.context.assets.open("seek_preview_device_test.mp4").use { it.readBytes() }
+        val server = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    val range = request.getHeader("Range")
+                    val start = range?.substringAfter("bytes=")?.substringBefore('-')?.toIntOrNull() ?: 0
+                    val response = MockResponse()
+                        .addHeader("Content-Type", "video/mp4")
+                        .addHeader("Accept-Ranges", "bytes")
+                    if (start !in video.indices) return response.setResponseCode(416)
+                    if (range != null) {
+                        response.setResponseCode(206)
+                        response.addHeader("Content-Range", "bytes $start-${video.lastIndex}/${video.size}")
+                    }
+                    return response.setBody(Buffer().write(video, start, video.size - start))
+                }
+            }
+            start()
+        }
+        fixtureServer = server
+        val source = StreamSource("Local completion clip", "Fixture", "fixture", "1080p", "", url = server.url("/clip.mp4").toString())
         state = MutableStateFlow(PlayerUiState(isLoading = false, title = "Completion test", selectedStream = source,
             selectedStreamUrl = source.url, streams = listOf(source), subtitlePreloadEnabled = false, autoPlayNext = autoplay))
         every { model.uiState } returns state

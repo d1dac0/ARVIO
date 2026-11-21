@@ -216,6 +216,9 @@ private fun KeyedTrailerPlayer(
             val observer = LifecycleEventObserver { _, event ->
                 when (event) {
                     Lifecycle.Event.ON_PAUSE -> player.pause()
+                    // Free the decoder and buffer while the app is in the background.
+                    Lifecycle.Event.ON_STOP -> player.stop()
+                    Lifecycle.Event.ON_START -> if (shouldPlay) player.prepare()
                     Lifecycle.Event.ON_RESUME -> if (shouldPlay) player.play()
                     else -> {}
                 }

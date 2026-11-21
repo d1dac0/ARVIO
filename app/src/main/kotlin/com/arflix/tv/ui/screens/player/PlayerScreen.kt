@@ -486,7 +486,6 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
         }
     }
 
-    KeepScreenOn()
     var isPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
     var hasPlaybackStarted by remember { mutableStateOf(false) }  // Track if playback has actually started
@@ -1824,6 +1823,10 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
                 })
             }
     }
+
+    // Keep the screen on only while playing, buffering toward playback, or still starting up,
+    // so a paused or failed player lets the TV's screensaver start.
+    KeepScreenOn(active = isPlaying || (isBuffering && exoPlayer.playWhenReady) || !hasPlaybackStarted)
 
     val useNativeSeekKeyframes = seekThumbnailsEnabled && uiState.selectedStreamUrl?.let {
         it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true)
@@ -4293,7 +4296,6 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
             AndroidView(
                 factory = { ctx ->
                     FullViewportSubtitlePlayerView(ctx).apply {
-                        keepScreenOn = true
                         player = exoPlayer
                         useController = false
                         setKeepContentOnPlayerReset(true)
@@ -4329,7 +4331,6 @@ private fun PlayerScreenContent(args: PlayerScreenArgs, viewModel: PlayerViewMod
                     }
                 },
                 update = { playerView ->
-                    playerView.keepScreenOn = true
                     playerView.player = exoPlayer
                     playerView.resizeMode = playerResizeMode
                     playerView.setUseVideoFrameForSubtitles(useVideoFrameSubtitleViewport)

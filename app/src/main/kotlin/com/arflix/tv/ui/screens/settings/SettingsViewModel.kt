@@ -4,7 +4,6 @@ import com.arflix.tv.data.model.AutoplayLimits
 
 import android.content.Context
 import android.graphics.Bitmap
-import coil.Coil
 import androidx.annotation.StringRes
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -2428,12 +2427,8 @@ class SettingsViewModel @Inject constructor(
                 dnsProvider = dnsProviderLabel(value)
             )
             syncLocalStateToCloud(silent = true)
-
-            // Replace Coil image loader with one using the new DNS
-            val imageLoader = withContext(Dispatchers.IO) {
-                OkHttpProvider.createCoilImageLoader(context)
-            }
-            Coil.setImageLoader(imageLoader)
+            // The shared image client resolves through the selected provider on every lookup,
+            // so Coil's loader stays as is; OkHttpProvider evicts its pooled connections.
         }
     }
 

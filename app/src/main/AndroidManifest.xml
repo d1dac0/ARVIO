@@ -105,7 +105,7 @@
         <activity
             android:name=".MainActivity"
             android:banner="@drawable/app_banner"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation"
             android:exported="true"
             android:hardwareAccelerated="true"
             android:launchMode="singleTop"

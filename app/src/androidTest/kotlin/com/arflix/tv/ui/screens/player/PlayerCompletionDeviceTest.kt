@@ -155,6 +155,7 @@ class PlayerCompletionDeviceTest {
         state = MutableStateFlow(PlayerUiState(isLoading = false, title = "Completion test", selectedStream = source,
             selectedStreamUrl = source.url, streams = listOf(source), subtitlePreloadEnabled = false, autoPlayNext = autoplay))
         every { model.uiState } returns state
+        coEvery { model.isAllowedForKids(any(), any()) } returns true
         every { model.isTranslatingLive } returns MutableStateFlow(false)
         every { model.idleReturnCoordinator.idleReturns } returns MutableStateFlow(0L)
         every { model.idleReturnCoordinator.idleThresholdMs } returns 60_000L

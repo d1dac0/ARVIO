@@ -183,7 +183,7 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
 
         val initializeProfile = appScope.launch(Dispatchers.IO) {
             try {
-                profileManager.initialize()
+                profileManager.ensureInitialized()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 AppLogger.recordException(e)
@@ -322,7 +322,12 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) trimMediaCaches()
+        // UI_HIDDEN (20) numerically exceeds TRIM_MEMORY_RUNNING_LOW (10) but only signals
+        // the UI went to the background, not memory pressure; trimming media caches there
+        // would drop them on every backgrounding (matches StreamRepository.onTrimMemory).
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW &&
+            level != ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN
+        ) trimMediaCaches()
         if (
             level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN ||
             level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE

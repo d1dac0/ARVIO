@@ -12163,7 +12163,7 @@ class IptvRepository @Inject constructor(
                 return null
             }
             val payload = cacheJsonReader(file).use { reader ->
-                gson.fromJson(reader, IptvCachePayload::class.java)
+                gson.fromJson<IptvCachePayload>(reader, IptvCachePayload::class.java)
             } ?: return null
             if (!isValidCacheSignature(config, payload.configSignature, payload.sourceSignature)) return null
             // The playlist's own guide address must come back even when no guide has been
@@ -12220,7 +12220,7 @@ class IptvRepository @Inject constructor(
                 return null
             }
             val payload = cacheJsonReader(file).use { reader ->
-                gson.fromJson(reader, IptvChannelCachePayload::class.java)
+                gson.fromJson<IptvChannelCachePayload>(reader, IptvChannelCachePayload::class.java)
             } ?: return null
             payload.copy(channels = sanitizeCachedChannels(payload.channels))
                 .takeIf { isValidCacheSignature(config, it.configSignature, it.sourceSignature) && it.channels.isNotEmpty() }

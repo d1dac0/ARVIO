@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
@@ -19,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
@@ -47,6 +49,7 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /**
@@ -64,14 +67,35 @@ interface TrailerPlayerEntryPoint {
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun TrailerPlayer(
-    youtubeKey: String,
+    youtubeKey: String?,
     modifier: Modifier = Modifier,
     delayMs: Long = 0L,
     volume: Float = 0f,
     onPlayingChanged: (Boolean) -> Unit = {}
 ) {
-    key(youtubeKey) {
-        KeyedTrailerPlayer(youtubeKey, modifier, delayMs, volume, onPlayingChanged)
+    var displayedKey by remember { mutableStateOf(youtubeKey) }
+    val visibility = remember { MutableTransitionState(youtubeKey != null) }
+    LaunchedEffect(youtubeKey) {
+        if (displayedKey != youtubeKey) {
+            visibility.targetState = false
+            snapshotFlow { visibility.isIdle && !visibility.currentState }.first { it }
+            displayedKey = youtubeKey
+        }
+        visibility.targetState = youtubeKey != null
+    }
+    // Keep the outgoing TextureView through the fade. Resolve the incoming title
+    // only after the outgoing player leaves, so the two decoders cannot overlap.
+    AnimatedVisibility(
+        visibleState = visibility,
+        enter = EnterTransition.None,
+        exit = fadeOut(tween(180)),
+        modifier = modifier
+    ) {
+        displayedKey?.let { keyToPlay ->
+            key(keyToPlay) {
+                KeyedTrailerPlayer(keyToPlay, Modifier.fillMaxSize(), delayMs, volume, onPlayingChanged)
+            }
+        }
     }
 }
 

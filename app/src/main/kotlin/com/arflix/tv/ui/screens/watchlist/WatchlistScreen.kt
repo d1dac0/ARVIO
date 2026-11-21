@@ -80,6 +80,7 @@ import com.arflix.tv.ui.screens.collections.CollectionBackdrop
 import com.arflix.tv.ui.screens.collections.CollectionSpotlight
 import com.arflix.tv.ui.screens.collections.collectionSpotlightHeight
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import com.arflix.tv.ui.theme.BackgroundCard
 import com.arflix.tv.ui.theme.BackgroundDark
 import com.arflix.tv.ui.theme.BackgroundElevated
@@ -184,10 +185,11 @@ fun WatchlistScreen(
         if (grid.layoutInfo.visibleItemsInfo.none { it.index == returnCardIndex }) {
             grid.scrollToItem(returnCardIndex)
         }
-        withFrameNanos { }
-        if (runCatching { returnCardFocus.requestFocus() }.isSuccess) {
-            initialFocusPlaced = true
-            pendingCardFocus = null
+        // The lazy grid may attach the focus node a frame after the scroll finishes.
+        repeat(3) {
+            withFrameNanos { }
+            if (pendingCardFocus == null) return@LaunchedEffect
+            runCatching { returnCardFocus.requestFocus() }
         }
     }
     var revealJob by remember(grid) { mutableStateOf<Job?>(null) }
@@ -215,18 +217,20 @@ fun WatchlistScreen(
         }
     }
     var focusedPreviewKey by rememberSaveable(currentProfile?.id, sourceKey) { mutableStateOf<String?>(null) }
-    val touchPreviewIndex by remember(grid) { derivedStateOf { grid.firstVisibleItemIndex } }
-    val previewCandidate = if (touch) items.getOrNull(touchPreviewIndex.coerceAtMost(items.lastIndex.coerceAtLeast(0)))
-        else items.firstOrNull { libraryPreviewKey(it) == focusedPreviewKey } ?: items.firstOrNull()
+    val previewItems by rememberUpdatedState(items)
+    val previewCandidate by remember(grid, touch, currentProfile?.id, sourceKey) {
+        derivedStateOf {
+            if (touch) previewItems.getOrNull(grid.firstVisibleItemIndex.coerceAtMost(previewItems.lastIndex.coerceAtLeast(0)))
+            else previewItems.firstOrNull { libraryPreviewKey(it) == focusedPreviewKey } ?: previewItems.firstOrNull()
+        }
+    }
     var readyPreview by remember(currentProfile?.id, sourceKey) { mutableStateOf<LibraryPreview?>(null) }
-    val activePreview = readyPreview ?: previewCandidate?.let { LibraryPreview(it) }
-    val previewItem = activePreview?.item
-    LaunchedEffect(currentProfile?.id, sourceKey, previewCandidate?.let(::libraryPreviewKey), calendarMode, collections) {
-        if (!calendarMode && !collections) {
-            val item = previewCandidate
+    LaunchedEffect(currentProfile?.id, sourceKey, grid, touch, calendarMode, collections) {
+        if (calendarMode || collections) return@LaunchedEffect
+        snapshotFlow { previewCandidate }.collectLatest { item ->
             if (item == null) {
                 readyPreview = null
-                return@LaunchedEffect
+                return@collectLatest
             }
             delay(100)
             viewModel.ensureLogo(item)
@@ -486,7 +490,8 @@ fun WatchlistScreen(
                         CatalogConfig(sourceKey, scopeSources.firstOrNull { it.id == selectedId }?.title
                             ?: state.selectedSource.title, CatalogSourceType.PREINSTALLED)
                     }
-                    val spotlightItem = previewItem
+                    val activePreview = readyPreview ?: previewCandidate?.let { LibraryPreview(it) }
+                    val spotlightItem = activePreview?.item
                     val compactSpotlight = compact || maxHeight < 440.dp
                     val showSpotlight = !collections && items.isNotEmpty()
                     if (showSpotlight) CollectionBackdrop(previewCatalog, spotlightItem, touch,
@@ -503,7 +508,7 @@ fun WatchlistScreen(
                         ) {
                             CollectionSpotlight(previewCatalog, spotlightItem, touch, compactSpotlight, {},
                                 providerLogoUrl = activePreview?.providerLogoUrl ?: spotlightItem?.primaryNetworkLogo,
-                                clearLogoUrl = previewItem?.let { logos[watchlistLogoKey(it)] },
+                                clearLogoUrl = spotlightItem?.let { logos[watchlistLogoKey(it)] },
                                 horizontalInset = 6.dp, showBackButton = false, topInset = 16.dp)
                         }
                     }
@@ -612,7 +617,14 @@ fun WatchlistScreen(
                                 focusedScale = 1.025f, titleMaxLines = 1, showTitle = true,
                                 modifier = Modifier.testTag("library-card-$index")
                                     .then(if (index == returnCardIndex) Modifier.focusRequester(returnCardFocus) else Modifier),
-                                onFocused = { focusedPreviewKey = libraryPreviewKey(item); revealCard(index, columns) },
+                                onFocused = {
+                                    focusedPreviewKey = libraryPreviewKey(item)
+                                    if (index == returnCardIndex) {
+                                        initialFocusPlaced = true
+                                        pendingCardFocus = null
+                                    }
+                                    revealCard(index, columns)
+                                },
                                 onClick = {
                                     pendingCardFocus = libraryPreviewKey(item)
                                     onNavigateToDetails(item.mediaType, item.id)

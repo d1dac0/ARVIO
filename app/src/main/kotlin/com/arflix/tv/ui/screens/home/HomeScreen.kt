@@ -1441,9 +1441,9 @@ fun HomeScreen(
                 }
 
                 // YouTube trailer auto-play — on TV, trailer plays inside the focused card instead
-                if ((isMobile || !uiState.trailerInCards || heroRowIsPoster) && heroVideoUrl == null && uiState.trailerAutoPlay && uiState.heroTrailerKey != null && !trailerSuppressed && !heroRowIsContinueWatching) {
+                if ((isMobile || !uiState.trailerInCards || heroRowIsPoster) && heroVideoUrl == null && uiState.trailerAutoPlay && !trailerSuppressed && !heroRowIsContinueWatching) {
                     TrailerPlayer(
-                        youtubeKey = uiState.heroTrailerKey!!,
+                        youtubeKey = uiState.heroTrailerKey,
                         delayMs = uiState.trailerDelaySeconds * 1000L,
                         volume = if (uiState.trailerSoundEnabled) 1f else 0f,
                         onPlayingChanged = { playing -> isTrailerPlaying = playing },

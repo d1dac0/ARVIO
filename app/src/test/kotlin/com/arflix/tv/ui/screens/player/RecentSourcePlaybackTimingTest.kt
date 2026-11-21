@@ -2,12 +2,18 @@ package com.arflix.tv.ui.screens.player
 
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.Player
+import com.arflix.tv.data.repository.CloudSyncRepository
+import com.arflix.tv.data.repository.ProfileManager
+import com.google.common.truth.Truth.assertThat
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.RecentPlayedSource
 import com.arflix.tv.data.model.StreamSource
 import com.arflix.tv.data.repository.RecentPlayedSourceRepository
 import com.arflix.tv.data.repository.StreamRepository
 import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
@@ -41,6 +47,8 @@ class RecentSourcePlaybackTimingTest {
     private lateinit var model: PlayerViewModel
     private val store = ViewModelStore()
     private val streams = mockk<StreamRepository>(relaxed = true)
+    private val profiles = mockk<ProfileManager>(relaxed = true)
+    private val cloud = mockk<CloudSyncRepository>(relaxed = true)
     private val recentRepository = mockk<RecentPlayedSourceRepository>(relaxed = true)
     private var clockMs = 0L
     private var positionMs = 0L
@@ -51,16 +59,18 @@ class RecentSourcePlaybackTimingTest {
 
     @Before fun setUp() {
         Dispatchers.setMain(Dispatchers.Unconfined)
+        every { profiles.getProfileIdSync() } returns "test"
+        every { profiles.activeProfileId } returns MutableStateFlow("test")
         coEvery { streams.resolveStreamForPlayback(any()) } coAnswers { firstArg() }
         model = PlayerViewModel(
             context = mockk(relaxed = true),
-            profileManager = mockk(relaxed = true),
+            profileManager = profiles,
             mediaRepository = mockk(relaxed = true),
             streamRepository = streams,
             traktRepository = mockk(relaxed = true),
             remoteSyncManager = mockk(relaxed = true),
             watchHistoryRepository = mockk(relaxed = true),
-            cloudSyncRepository = mockk(relaxed = true),
+            cloudSyncRepository = cloud,
             launcherContinueWatchingRepository = mockk(relaxed = true),
             animeMapper = mockk(relaxed = true),
             tmdbApi = mockk(relaxed = true),
@@ -163,6 +173,19 @@ class RecentSourcePlaybackTimingTest {
         assertNull(model.saveProgress(97_000L, 400_000L, 24, true, androidx.media3.common.Player.STATE_READY))
         assertNull(model.saveProgress(97_000L, 400_000L, 24, false, androidx.media3.common.Player.STATE_READY, closing = true))
         verify(exactly = 0) { recentRepository.save(any(), any()) }
+    }
+
+    @Test fun bufferingWithPlayIntentDoesNotForceAnExtraCloudPush() = runBlocking {
+        field("lastCloudPushTime").setLong(model, System.currentTimeMillis())
+        val buffering = model.saveProgress(97_000L, 400_000L, 24, true, Player.STATE_BUFFERING)
+        assertThat(buffering).isNotNull()
+        withTimeout(5_000) { buffering?.join() }
+        coVerify(exactly = 0) { cloud.pushToCloud(any()) }
+
+        val paused = model.saveProgress(97_000L, 400_000L, 24, false, Player.STATE_READY)
+        assertThat(paused).isNotNull()
+        withTimeout(5_000) { paused?.join() }
+        coVerify(exactly = 1) { cloud.pushToCloud(any()) }
     }
 
     @Test fun discardingAnIdleSessionCancelsItsPendingProgressWrite() {

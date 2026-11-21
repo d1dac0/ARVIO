@@ -580,7 +580,7 @@ private fun NetflixBillboard(
                     modifier = Modifier.fillMaxSize()
                 )
             }
-            if (autoplayEnabled && trailerKey != null) {
+            if (autoplayEnabled) {
                 TrailerPlayer(
                     youtubeKey = trailerKey,
                     delayMs = NETFLIX_RAIL_MORPH_MS.toLong(),

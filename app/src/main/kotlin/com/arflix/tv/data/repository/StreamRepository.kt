@@ -1034,12 +1034,8 @@ class StreamRepository @Inject constructor(
             cachedStreamAddonsFingerprint = null
         }
 
-        runCatching {
-            val activeProfileId = profileManager.getProfileIdSync()
-            val bundleKey = streamResultCacheBundleKey(activeProfileId)
-            context.streamDataStore.edit { prefs ->
-                prefs.remove(bundleKey)
-            }
+        streamResultDiskCacheMutex.withLock {
+            streamResultDiskCache.listFiles()?.forEach { it.delete() }
         }
 
         AddonRefreshReport(refreshed = refreshedCount, failed = failedCount)

@@ -51,11 +51,18 @@ class NativeAddonTypeStreamTest {
         coEvery { integrations.isIntegrationEnabled(any()) } returns true
         coEvery { integrations.enabledProviderIds(StreamIntegrationType.STREMIO_ADDONS, any()) } returns setOf("stremio:${addon.id}")
         coEvery { integrations.getUnifiedSourceOrderedIdsSync() } returns emptyList()
+        val profileManager = mockk<ProfileManager>(relaxed = true)
+        // personalAddons combines streamDataStore.data with profileManager.activeProfileId.
+        // On a relaxed mock that property is a mock Flow whose collect() completes without
+        // ever emitting, so combine() can never produce its first value and anything that
+        // reads installedAddons.first() (resolveMovieStreams/resolveEpisodeStreams/getAddonMeta/
+        // searchNativeAddonCatalogs all do) hangs forever. Stub it with a real emitting flow.
+        every { profileManager.activeProfileId } returns MutableStateFlow("")
         return StreamRepository(
             RuntimeEnvironment.getApplication(), api,
-            mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
-            mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
-            integrations
+            mockk(relaxed = true), profileManager, mockk(relaxed = true), mockk(relaxed = true),
+            mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
+            mockk(relaxed = true), integrations
         ).also { runBlocking { it.replaceSharedAddonsFromCloud(listOf(addon)) } }
     }
 
@@ -72,56 +79,66 @@ class NativeAddonTypeStreamTest {
     )
 
     @Test fun liveChannelIsAskedByItsOwnTypeFromAnAddonWithoutAMovieType() = runBlocking {
-        val api = mockk<StreamApi>()
-        val repository = repository(api, strictAddon("tv"))
-        coEvery { api.getAddonStreams(any()) } returns
-            StremioStreamResponse(listOf(StremioStream(url = "https://ch.test/live.m3u8")))
+        // 60s is a pure hang guard (a starved coroutine used to wedge the test JVM for
+        // hours here); the work itself finishes in seconds.
+        withTimeout(60_000) {
+            val api = mockk<StreamApi>()
+            val repository = repository(api, strictAddon("tv"))
+            coEvery { api.getAddonStreams(any()) } returns
+                StremioStreamResponse(listOf(StremioStream(url = "https://ch.test/live.m3u8")))
 
-        val result = repository.resolveMovieStreams("chx_live_1", forceRefresh = true, nativeType = "tv")
+            val result = repository.resolveMovieStreams("chx_live_1", forceRefresh = true, nativeType = "tv")
 
-        assertFalse(result.streams.isEmpty())
-        coVerify(exactly = 1) { api.getAddonStreams("https://ch.test/stream/tv/chx_live_1.json") }
-        coVerify(exactly = 0) { api.getAddonStreams(match { it.contains("/stream/movie/") }) }
+            assertFalse(result.streams.isEmpty())
+            coVerify(exactly = 1) { api.getAddonStreams("https://ch.test/stream/tv/chx_live_1.json") }
+            coVerify(exactly = 0) { api.getAddonStreams(match { it.contains("/stream/movie/") }) }
+        }
     }
 
     @Test fun customTypeEpisodeIsFoundAndAskedByItsOwnType() = runBlocking {
-        val api = mockk<StreamApi>()
-        val repository = repository(api, strictAddon("Podcasts"))
-        coEvery { api.getAddonMeta(any()) } returns StremioMetaResponse(StremioMetaPreview(
-            id = "chx_pod_1", videos = listOf(StremioMetaVideo(id = "chx_pod_1:1:1", season = 1, episode = 1))))
-        coEvery { api.getAddonStreams(any()) } returns
-            StremioStreamResponse(listOf(StremioStream(url = "https://ch.test/ep1.mp3")))
+        withTimeout(60_000) {
+            val api = mockk<StreamApi>()
+            val repository = repository(api, strictAddon("Podcasts"))
+            coEvery { api.getAddonMeta(any()) } returns StremioMetaResponse(StremioMetaPreview(
+                id = "chx_pod_1", videos = listOf(StremioMetaVideo(id = "chx_pod_1:1:1", season = 1, episode = 1))))
+            coEvery { api.getAddonStreams(any()) } returns
+                StremioStreamResponse(listOf(StremioStream(url = "https://ch.test/ep1.mp3")))
 
-        val result = repository.resolveEpisodeStreams("chx_pod_1", 1, 1, forceRefresh = true, nativeType = "Podcasts")
+            val result = repository.resolveEpisodeStreams("chx_pod_1", 1, 1, forceRefresh = true, nativeType = "Podcasts")
 
-        assertFalse(result.streams.isEmpty())
-        coVerify { api.getAddonMeta("https://ch.test/meta/Podcasts/chx_pod_1.json") }
-        coVerify(exactly = 1) { api.getAddonStreams("https://ch.test/stream/Podcasts/chx_pod_1%3A1%3A1.json") }
+            assertFalse(result.streams.isEmpty())
+            coVerify { api.getAddonMeta("https://ch.test/meta/Podcasts/chx_pod_1.json") }
+            coVerify(exactly = 1) { api.getAddonStreams("https://ch.test/stream/Podcasts/chx_pod_1%3A1%3A1.json") }
+        }
     }
 
     @Test fun metaUrlsEncodeSpacesInTheTypeLikeCatalogUrls() = runBlocking {
-        val api = mockk<StreamApi>()
-        val repository = repository(api, strictAddon("Live Docs"))
-        coEvery { api.getAddonMeta(any()) } returns StremioMetaResponse(StremioMetaPreview(id = "chx_doc_1", name = "Doc"))
+        withTimeout(60_000) {
+            val api = mockk<StreamApi>()
+            val repository = repository(api, strictAddon("Live Docs"))
+            coEvery { api.getAddonMeta(any()) } returns StremioMetaResponse(StremioMetaPreview(id = "chx_doc_1", name = "Doc"))
 
-        assertNotNull(repository.getAddonMeta("example.channels", "Live Docs", "chx_doc_1"))
+            assertNotNull(repository.getAddonMeta("example.channels", "Live Docs", "chx_doc_1"))
 
-        coVerify(exactly = 1) { api.getAddonMeta("https://ch.test/meta/Live%20Docs/chx_doc_1.json") }
+            coVerify(exactly = 1) { api.getAddonMeta("https://ch.test/meta/Live%20Docs/chx_doc_1.json") }
+        }
     }
 
     @Test fun searchUrlsEncodeTheCatalogTypeAndIdLikeCatalogUrls() = runBlocking {
-        val api = mockk<StreamApi>()
-        val base = strictAddon("Live Docs")
-        val addon = base.copy(manifest = base.manifest!!.copy(catalogs = listOf(
-            AddonCatalog("Live Docs", "docs/new", extra = listOf(AddonCatalogExtra("search"))))))
-        val repository = repository(api, addon)
-        coEvery { api.getAddonCatalog(any()) } returns
-            StremioCatalogResponse(metas = listOf(StremioMetaPreview(id = "chx_doc_1", name = "Doc")))
+        withTimeout(60_000) {
+            val api = mockk<StreamApi>()
+            val base = strictAddon("Live Docs")
+            val addon = base.copy(manifest = base.manifest!!.copy(catalogs = listOf(
+                AddonCatalog("Live Docs", "docs/new", extra = listOf(AddonCatalogExtra("search"))))))
+            val repository = repository(api, addon)
+            coEvery { api.getAddonCatalog(any()) } returns
+                StremioCatalogResponse(metas = listOf(StremioMetaPreview(id = "chx_doc_1", name = "Doc")))
 
-        assertEquals(1, repository.searchNativeAddonCatalogs("deep sea").size)
+            assertEquals(1, repository.searchNativeAddonCatalogs("deep sea").size)
 
-        coVerify(exactly = 1) {
-            api.getAddonCatalog("https://ch.test/catalog/Live%20Docs/docs%2Fnew/search=deep%20sea.json")
+            coVerify(exactly = 1) {
+                api.getAddonCatalog("https://ch.test/catalog/Live%20Docs/docs%2Fnew/search=deep%20sea.json")
+            }
         }
     }
 }

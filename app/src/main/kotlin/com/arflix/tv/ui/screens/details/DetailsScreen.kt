@@ -309,7 +309,7 @@ fun DetailsScreen(
     // Start on buttons for both TV and movies (buttons are now shown for both)
     var focusedSection by rememberSaveable(mediaType, mediaId) { mutableStateOf(FocusSection.BUTTONS) }
     var hasEnteredDetails by rememberSaveable(mediaType, mediaId, initialSeason, initialEpisode) { mutableStateOf(false) }
-    var buttonIndex by remember { mutableIntStateOf(0) }
+    var buttonIndex by rememberSaveable(mediaType, mediaId) { mutableIntStateOf(0) }
     var episodeIndex by rememberSaveable { mutableIntStateOf(0) }
     var selectedEpisodeIdentity by rememberSaveable(mediaType, mediaId) {
         mutableStateOf<EpisodeIdentity?>(null)
@@ -317,10 +317,10 @@ fun DetailsScreen(
     var selectedEpisodeRevision by rememberSaveable(mediaType, mediaId) { mutableLongStateOf(uiState.idleSyncRevision) }
     var ratingsIndex by rememberSaveable { mutableIntStateOf(0) }
     var seasonIndex by rememberSaveable { mutableIntStateOf(0) }
-    var castIndex by remember { mutableIntStateOf(0) }
-    var reviewIndex by remember { mutableIntStateOf(0) }
-    var similarIndex by remember { mutableIntStateOf(0) }
-    var collectionIndex by remember { mutableIntStateOf(0) }
+    var castIndex by rememberSaveable(mediaType, mediaId) { mutableIntStateOf(0) }
+    var reviewIndex by rememberSaveable(mediaType, mediaId) { mutableIntStateOf(0) }
+    var similarIndex by rememberSaveable(mediaType, mediaId) { mutableIntStateOf(0) }
+    var collectionIndex by rememberSaveable(mediaType, mediaId) { mutableIntStateOf(0) }
 
     // Sidebar state
     var isSidebarFocused by remember { mutableStateOf(false) }

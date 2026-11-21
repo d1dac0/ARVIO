@@ -196,7 +196,7 @@ class MobilePlayerInteractionTest {
             ArvioMobilePlayer(
                 uiState = playerState,
                 isPlaying = false, isBuffering = false, hasPlaybackStarted = true,
-                currentPositionMs = position, durationMs = 100_000L, bufferedPositionMs = 80_000L,
+                positionMs = { position }, durationMs = 100_000L, bufferedPositionMs = 80_000L,
                 audioTracks = emptyList(), selectedAudioIndex = 0, currentPlaybackSpeed = 1f,
                 aspectModeLabel = "Auto", isCasting = false, showCastButton = false,
                 showPipButton = false,

@@ -692,10 +692,6 @@ fun YouTubeTrailerModal(
                                         markInteraction()
                                         true
                                     }
-                                    Key.Back, Key.Escape -> {
-                                        onClose()
-                                        true
-                                    }
                                     else -> false
                                 }
                             } else if (event.type == KeyEventType.KeyUp) {
@@ -703,8 +699,7 @@ fun YouTubeTrailerModal(
                                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter,
                                     Key.DirectionLeft, Key.DirectionRight, Key.DirectionUp, Key.DirectionDown,
                                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause,
-                                    Key.MediaFastForward, Key.MediaRewind,
-                                    Key.Back, Key.Escape -> true
+                                    Key.MediaFastForward, Key.MediaRewind -> true
                                     else -> false
                                 }
                             } else false

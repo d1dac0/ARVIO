@@ -11,7 +11,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -38,8 +37,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.arflix.tv.data.model.Category
-import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.repository.AuthState
@@ -57,26 +54,52 @@ import com.arflix.tv.ui.screens.watchlist.WatchlistScreen
 import com.arflix.tv.ui.screens.watchlist.calendar.ReleaseCalendarViewModel
 import com.arflix.tv.ui.screens.profile.ProfileSelectionScreen
 import com.arflix.tv.util.LocalDeviceType
+import android.os.SystemClock
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+
+private const val CALENDAR_IDLE_DELAY_MS = 6_000L
+
+private class CalendarInteraction {
+    var lastInteractionAt = 0L
+        private set
+    val signal = Channel<Unit>(Channel.CONFLATED)
+
+    fun record() {
+        lastInteractionAt = SystemClock.uptimeMillis()
+        signal.trySend(Unit)
+    }
+}
 
 @Composable
 private fun CalendarIdlePreload(viewModel: ReleaseCalendarViewModel, profileId: String?, content: @Composable () -> Unit) {
-    var lastInteraction by remember { mutableLongStateOf(0L) }
+    val interaction = remember { CalendarInteraction() }
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
-    LaunchedEffect(profileId, lifecycle, lastInteraction) {
-        if (profileId != null && lifecycle == Lifecycle.State.RESUMED) {
-            delay(6_000)
+    LaunchedEffect(viewModel, profileId, lifecycle) {
+        if (profileId == null || lifecycle != Lifecycle.State.RESUMED) return@LaunchedEffect
+        val resumedAt = SystemClock.uptimeMillis()
+        while (true) {
+            val lastInteractionAt = maxOf(resumedAt, interaction.lastInteractionAt)
+            val remaining = CALENDAR_IDLE_DELAY_MS - (SystemClock.uptimeMillis() - lastInteractionAt)
+            if (remaining > 0) {
+                delay(remaining)
+                continue
+            }
             viewModel.preloadIdle()
+            // Ignore signals already covered by this preload and wait for another key or touch.
+            while (interaction.lastInteractionAt <= lastInteractionAt) {
+                interaction.signal.receive()
+            }
         }
     }
     Box(Modifier.fillMaxSize().onPreviewKeyEvent {
-        lastInteraction = android.os.SystemClock.uptimeMillis()
+        interaction.record()
         false
     }.pointerInput(Unit) {
         awaitPointerEventScope {
             while (true) {
                 awaitPointerEvent(PointerEventPass.Initial)
-                lastInteraction = android.os.SystemClock.uptimeMillis()
+                interaction.record()
             }
         }
     }) { content() }
@@ -216,10 +239,6 @@ fun AppNavigation(
     startDestination: String = Screen.Login.route,
     navigationRailInset: Dp = 0.dp,
     navigationRailBottomInset: Dp = 0.dp,
-    preloadedCategories: List<Category> = emptyList(),
-    preloadedHeroItem: MediaItem? = null,
-    preloadedHeroLogoUrl: String? = null,
-    preloadedLogoCache: Map<String, String> = emptyMap(),
     currentProfile: Profile? = null,
     isCloudConnected: Boolean = false,
     onSwitchProfile: () -> Unit = {},
@@ -292,10 +311,6 @@ fun AppNavigation(
             NavigationRailScreen(navigationRailInset, bottomInset = navigationRailBottomInset) {
               CalendarIdlePreload(calendarViewModel, currentProfile?.id) {
                 HomeScreen(
-                    preloadedCategories = preloadedCategories,
-                    preloadedHeroItem = preloadedHeroItem,
-                    preloadedHeroLogoUrl = preloadedHeroLogoUrl,
-                    preloadedLogoCache = preloadedLogoCache,
                     currentProfile = currentProfile,
                     onNavigateToDetails = { mediaType, mediaId, initialSeason, initialEpisode, autoPlay ->
                         navController.navigate(Screen.Details.createRoute(mediaType, mediaId, initialSeason, initialEpisode, autoPlay))
@@ -524,7 +539,7 @@ fun AppNavigation(
         ) { backStackEntry ->
             val catalogId = backStackEntry.arguments?.getString("catalogId").orEmpty()
             if (catalogId.isBlank()) {
-                navigateHome()
+                LaunchedEffect(backStackEntry.id) { navigateHome() }
                 return@composable
             }
             CollectionDetailsScreen(
@@ -602,7 +617,7 @@ fun AppNavigation(
             val mediaId = backStackEntry.arguments?.getInt("mediaId") ?: 0
             // Negative ids are native addon items (see AddonNativeCatalog).
             if (mediaId == 0) {
-                navigateHome()
+                LaunchedEffect(backStackEntry.id) { navigateHome() }
                 return@composable
             }
             val initialSeason = backStackEntry.arguments?.getInt("initialSeason")?.takeIf { it >= 0 }
@@ -648,7 +663,9 @@ fun AppNavigation(
                     }
                 },
                 onNavigateToDetails = { type, id ->
-                    navController.navigate(Screen.Details.createRoute(type, id))
+                    navController.navigate(Screen.Details.createRoute(type, id)) {
+                        popUpTo(Screen.Details.route) { inclusive = true }
+                    }
                 },
                 onNavigateToCollection = { catalogId ->
                     navController.navigate(Screen.CollectionDetails.createRoute(catalogId))

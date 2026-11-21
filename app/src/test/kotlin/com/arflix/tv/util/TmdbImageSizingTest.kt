@@ -40,7 +40,14 @@ class TmdbImageSizingTest {
     @Test
     fun `original stays for slots wider than 1280 px`() {
         assertEquals(backdrop, TmdbImageSizing.forSlot(backdrop, 1281, 0, BACKDROP))
-        assertEquals(backdrop, TmdbImageSizing.forSlot(backdrop, 1920, 1080, BACKDROP)) // TV hero
+        assertEquals(backdrop, TmdbImageSizing.forSlot(backdrop, 1920, 1080, BACKDROP))
+    }
+
+    @Test
+    fun `1080p hero can use a w1280 backdrop`() {
+        com.google.common.truth.Truth.assertThat(
+            size(TmdbImageSizing.forSlot(backdrop, 1920, 1080, BACKDROP, maxUpscale = 1.6f))
+        ).isEqualTo("w1280")
     }
 
     @Test

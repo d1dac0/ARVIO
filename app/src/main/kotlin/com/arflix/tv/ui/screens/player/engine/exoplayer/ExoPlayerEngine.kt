@@ -22,6 +22,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -51,20 +52,23 @@ class ExoPlayerEngine(
     private fun startPositionPolling() {
         pollJob?.cancel()
         pollJob = scope.launch {
-            while (isActive) {
-                if (exoPlayer.isPlaying || exoPlayer.playbackState == Player.STATE_BUFFERING) {
-                    _state.update { current ->
-                        current.copy(
-                            currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L),
-                            durationMs = exoPlayer.duration.coerceAtLeast(0L),
-                            bufferedPositionMs = exoPlayer.bufferedPosition.coerceAtLeast(0L),
-                            isPlaying = exoPlayer.isPlaying,
-                            isBuffering = exoPlayer.playbackState == Player.STATE_BUFFERING && exoPlayer.playWhenReady,
-                            hasPlaybackStarted = current.hasPlaybackStarted || (exoPlayer.currentPosition > 0L)
-                        )
+            _state.subscriptionCount.collectLatest { subscribers ->
+                if (subscribers == 0) return@collectLatest
+                while (isActive) {
+                    if (exoPlayer.isPlaying || exoPlayer.playbackState == Player.STATE_BUFFERING) {
+                        _state.update { current ->
+                            current.copy(
+                                currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L),
+                                durationMs = exoPlayer.duration.coerceAtLeast(0L),
+                                bufferedPositionMs = exoPlayer.bufferedPosition.coerceAtLeast(0L),
+                                isPlaying = exoPlayer.isPlaying,
+                                isBuffering = exoPlayer.playbackState == Player.STATE_BUFFERING && exoPlayer.playWhenReady,
+                                hasPlaybackStarted = current.hasPlaybackStarted || (exoPlayer.currentPosition > 0L)
+                            )
+                        }
                     }
+                    delay(250)
                 }
-                delay(250)
             }
         }
     }

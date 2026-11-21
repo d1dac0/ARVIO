@@ -171,7 +171,6 @@ import com.arflix.tv.data.repository.MdbExternalRating
 import com.arflix.tv.data.repository.YouTubeCollection
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.EpisodeContextMenu
-import com.arflix.tv.ui.components.KeepScreenOn
 import com.arflix.tv.ui.components.SeasonContextMenu
 import com.arflix.tv.ui.components.LoadingIndicator
 import com.arflix.tv.ui.components.AppTopBar
@@ -189,7 +188,6 @@ import com.arflix.tv.ui.components.SkeletonDetailsPage
 import com.arflix.tv.ui.components.SkeletonEpisodeCard
 import com.arflix.tv.ui.components.StreamSelector
 import com.arflix.tv.ui.components.YouTubeTrailerModal
-import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
@@ -337,7 +335,6 @@ fun DetailsScreen(
         onFullscreenChanged(showTrailerPlayer)
         onDispose { onFullscreenChanged(false) }
     }
-    KeepScreenOn(active = showTrailerPlayer)
 
     // Episode Context Menu state
     var showEpisodeContextMenu by remember { mutableStateOf(false) }
@@ -708,7 +705,10 @@ fun DetailsScreen(
     // Issue 2: leaving the composition by any path (nav pop, player launch,
     // Similar-chain replace) cancels the pending dwell / running prefetch.
     DisposableEffect(mediaType, mediaId) {
-        onDispose { viewModel.cancelStreamPrefetch() }
+        onDispose {
+            viewModel.cancelStreamPrefetch()
+            viewModel.cancelStreamSearch()
+        }
     }
 
     // D-pad key handler — only used on TV (skipped on mobile/touch devices)
@@ -1076,7 +1076,10 @@ fun DetailsScreen(
             isVisible = uiState.showPersonModal,
             person = uiState.selectedPerson,
             isLoading = uiState.isLoadingPerson,
-            onClose = { viewModel.closePersonModal() },
+            onClose = {
+                viewModel.closePersonModal()
+                runCatching { focusRequester.requestFocus() }
+            },
             onMediaClick = { type, id ->
                 viewModel.closePersonModal()
                 onNavigateToDetails(type, id)
@@ -1163,6 +1166,8 @@ fun DetailsScreen(
                             identity?.displayEpisode == uiState.playEpisode
                         ) uiState.playPositionMs else null
                 }
+                viewModel.cancelStreamSearch()
+                viewModel.cancelStreamPrefetch()
                 viewModel.recordPlayedEpisode(mediaId, identity)
                 if (identity != null) focusedSection = FocusSection.EPISODES
                 onNavigateToPlayer(
@@ -1177,6 +1182,7 @@ fun DetailsScreen(
                 )
             },
             onClose = {
+                viewModel.cancelStreamSearch()
                 showStreamSelector = false
                 try { focusRequester.requestFocus() } catch (_: Exception) {}
             }
@@ -1212,6 +1218,7 @@ fun DetailsScreen(
                 onDismiss = {
                     showEpisodeContextMenu = false
                     contextMenuEpisode = null
+                    runCatching { focusRequester.requestFocus() }
                 }
             )
         }
@@ -1227,6 +1234,7 @@ fun DetailsScreen(
             },
             onDismiss = {
                 showSeasonContextMenu = false
+                runCatching { focusRequester.requestFocus() }
             }
         )
 
@@ -4202,6 +4210,10 @@ internal fun EpisodeCard(
     val episodeCode = "S${episode.seasonNumber} • E${String.format("%02d", episode.episodeNumber)}"
     val ratingLabel = episode.imdbRating.takeIf { parseRatingValue(it) > 0f }
     val isSpoilerBlurred = spoilerBlurEnabled && !episode.isWatched
+    val supportsLiveSpoilerBlur = remember(context) {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            context.getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == false
+    }
     val noSynopsisText = stringResource(R.string.details_no_synopsis)
     val previewText = if (isSpoilerBlurred) {
         ""
@@ -4236,7 +4248,7 @@ internal fun EpisodeCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(
-                        if (isSpoilerBlurred && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(20.dp) else Modifier
+                        if (isSpoilerBlurred && supportsLiveSpoilerBlur) Modifier.blur(20.dp) else Modifier
                     )
             )
 
@@ -4255,7 +4267,7 @@ internal fun EpisodeCard(
                     )
             )
 
-            if (isSpoilerBlurred && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            if (isSpoilerBlurred && !supportsLiveSpoilerBlur) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -4564,7 +4576,7 @@ private fun CastCard(
         ) { _ ->
             if (member.profilePath != null) {
                 AsyncImage(
-                    model = member.profilePath,
+                    model = member.profilePath?.let(TmdbImageSizing::forProfile),
                     contentDescription = member.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -4661,7 +4673,7 @@ private fun CircularCastCard(
         ) {
             if (castMember.profilePath != null) {
                 AsyncImage(
-                    model = castMember.profilePath,
+                    model = castMember.profilePath?.let(TmdbImageSizing::forProfile),
                     contentDescription = castMember.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

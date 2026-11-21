@@ -1770,7 +1770,6 @@ class HomeViewModel @Inject constructor(
     private var currentItemIndex = 0
 
     // Track if preloaded data was used to avoid duplicate loading
-    private var usedPreloadedData = false
 
     private val maxLogoCacheEntries = if (isLowRamDevice) 220 else 420
     private val maxLogoCacheJsonChars = if (isLowRamDevice) 250_000 else 500_000
@@ -1913,7 +1912,6 @@ class HomeViewModel @Inject constructor(
             applyContentLanguageFromPrefs()
             delay(if (isLowRamDevice) 1_000L else 800L)
             if (
-                usedPreloadedData ||
                 _uiState.value.categories.isNotEmpty() ||
                 _uiState.value.heroItem != null
             ) {
@@ -2369,6 +2367,7 @@ class HomeViewModel @Inject constructor(
             // elsewhere overnight missing here until something else happened
             // to clear both windows.
             appForegroundSignals.returnedToForeground.collect {
+                pullCloudStateOnResume()
                 refreshContinueWatchingOnly(force = true)
             }
         }
@@ -2693,80 +2692,6 @@ class HomeViewModel @Inject constructor(
 
     }
 
-    /**
-     * Set preloaded data from StartupViewModel for instant display.
-     * This skips the initial network call since data is already loaded.
-     *
-     * Shows placeholder Continue Watching cards immediately while real data loads.
-     */
-    fun setPreloadedData(
-        categories: List<Category>,
-        heroItem: MediaItem?,
-        heroLogoUrl: String?,
-        logoCache: Map<String, String>
-    ) {
-
-        if (usedPreloadedData) {
-            if (logoCache.isNotEmpty()) {
-                if (putCachedLogos(logoCache)) {
-                    publishLogoCacheSnapshotIfChanged()
-                }
-            }
-            _uiState.update { it.withBackgroundHero(heroItem, heroLogoUrl) }
-            return
-        }
-        if (categories.isEmpty()) {
-            return
-        }
-
-        usedPreloadedData = true
-
-        categories.forEach { cat -> cat.items.forEach { mediaRepository.cacheItem(it) } }
-        heroItem?.let { mediaRepository.cacheItem(it) }
-        putCachedLogos(logoCache)
-        resolveIptvChannels(categories.flatMap { it.items })
-
-        val filteredCategories = preloadedHomeCategories(categories, _uiState.value.categories)
-
-        // Adjust hero item if it was from continue watching
-        val adjustedHeroItem = if (heroItem != null &&
-            categories.firstOrNull()?.id == "continue_watching" &&
-            categories.firstOrNull()?.items?.any { it.id == heroItem.id } == true) {
-            // Hero was from continue watching, use first item from filtered categories
-            filteredCategories.getOrNull(1)?.items?.firstOrNull() ?: heroItem
-        } else if (heroItem != null && !isCollectionItem(heroItem)) {
-            heroItem
-        } else {
-            chooseInitialHero(filteredCategories)
-        }
-
-        // Startup data must not replace an already selected hero, even without a logo.
-        val currentHero = _uiState.value.heroItem
-        val currentLogo = _uiState.value.heroLogoUrl
-        val finalHero = if (currentHero != null) {
-            currentHero
-        } else {
-            adjustedHeroItem
-        }
-        val finalLogo = if (finalHero == currentHero) {
-            currentLogo  // keep the cached logo
-        } else if (adjustedHeroItem == heroItem) {
-            heroLogoUrl  // use whatever startup preloaded
-        } else {
-            null
-        }
-        _uiState.value = _uiState.value.copy(
-            isLoading = false,
-            isInitialLoad = false,
-            categories = filteredCategories,
-            heroItem = finalHero,
-            heroLogoUrl = finalLogo,
-            error = null
-        )
-        replaceCardLogoState(snapshotLogoCache())
-        refreshWatchedBadges()
-    }
-
     private val prefetchedDetailsKeys = Collections.synchronizedSet(mutableSetOf<String>())
     private val collectionCatalogByMediaId = ConcurrentHashMap<Int, CatalogConfig>()
 
@@ -3008,11 +2933,6 @@ class HomeViewModel @Inject constructor(
         homeDataLoadAttempted = true
         val requestId = ++loadHomeRequestId
         loadHomeJob = viewModelScope.launch loadHome@{
-            // Skip delay - preloading now happens on profile focus for instant display
-            // Only add minimal delay if no preloaded data exists yet
-            if (!usedPreloadedData) {
-                delay(50) // Minimal delay for LaunchedEffect to potentially set preloaded data
-            }
             if (requestId != loadHomeRequestId) return@loadHome
             applyContentLanguageFromPrefs()
 
@@ -4589,7 +4509,7 @@ class HomeViewModel @Inject constructor(
     private val cloudPullThrottleMs = 30_000L
     private var cloudPullJob: Job? = null
 
-    fun pullCloudStateOnResume() {
+    private fun pullCloudStateOnResume() {
         val now = android.os.SystemClock.elapsedRealtime()
         if (cloudPullJob?.isActive == true) return
         if (lastCloudPullTimestamp != 0L && now - lastCloudPullTimestamp < cloudPullThrottleMs) return

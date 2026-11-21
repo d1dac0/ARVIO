@@ -49,9 +49,8 @@ class TraktSyncWorker(
     }
 
     override suspend fun doWork(): Result {
-        // Check if user is authenticated
-        val isAuth = deps.traktRepository().isAuthenticated.first()
-        if (!isAuth) {
+        val connection = deps.traktRepository().connection.first()
+        if (!connection.connected || connection.reconnectRequired) {
             return Result.success()
         }
 

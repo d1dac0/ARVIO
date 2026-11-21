@@ -112,9 +112,7 @@ fun PluginScreen(
             when (enterTrigger) {
                 0 -> { showAddDialog = true }
                 in 1..repositories.size -> {
-                    val repo = repositories[enterTrigger - 1]
-                    viewModel.onEvent(PluginUiEvent.RemoveRepository(repo.id))
-                    onFocusedIndexChanged((enterTrigger - 1).coerceAtLeast(0))
+                    repoToDelete = repositories[enterTrigger - 1]
                 }
                 in (1 + repositories.size)..(repositories.size + scrapersCount) -> {
                     if (scrapers.isNotEmpty()) {

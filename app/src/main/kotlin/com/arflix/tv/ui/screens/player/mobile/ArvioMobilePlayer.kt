@@ -123,7 +123,7 @@ fun ArvioMobilePlayer(
     isPlaying: Boolean,
     isBuffering: Boolean,
     hasPlaybackStarted: Boolean,
-    currentPositionMs: Long,
+    positionMs: () -> Long,
     durationMs: Long,
     bufferedPositionMs: Long,
     audioTracks: List<AudioTrackInfo>,
@@ -424,6 +424,7 @@ fun ArvioMobilePlayer(
     val nextEpisode = uiState.seasonEpisodes.takeIf { canPlayNextEpisode }?.firstOrNull { it.episodeNumber == (uiState.episodeNumber ?: 0) + 1 }
 
     // Reset dismiss flags when seeking backward before intervals
+    val currentPositionMs = positionMs()
     LaunchedEffect(currentPositionMs, activeSkip) {
         if (activeSkip != null && currentPositionMs < activeSkip.startMs) {
             dismissedIntro = false

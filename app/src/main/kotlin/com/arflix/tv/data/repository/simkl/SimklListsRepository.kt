@@ -9,9 +9,10 @@ import com.arflix.tv.util.Constants
 import com.arflix.tv.util.SecureStorage
 import com.google.gson.Gson
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import okhttp3.OkHttpClient
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,7 +26,12 @@ class SimklListsRepository @Inject constructor(
     private val prefs = context.getSharedPreferences("simkl_lists_v2", Context.MODE_PRIVATE)
     private val gson = Gson()
     private val mutex = Mutex()
-    private val http = OkHttpClient.Builder().callTimeout(20, TimeUnit.SECONDS).addInterceptor(com.arflix.tv.network.sharedSimklRateLimiter).build()
+    private val http by lazy {
+        com.arflix.tv.network.OkHttpProvider.client.newBuilder()
+            .callTimeout(20, TimeUnit.SECONDS)
+            .addInterceptor(com.arflix.tv.network.sharedSimklRateLimiter)
+            .build()
+    }
     private val client get() = SimklListsClient(http, Constants.SIMKL_V2_CLIENT_ID, version = BuildConfig.VERSION_NAME.substringBefore('-'))
     private val cache = mutableMapOf<String, Pair<Long, SimklCustomList>>()
     private val indexCache = mutableMapOf<String, Pair<Long, List<SimklCustomList>>>()
@@ -43,13 +49,25 @@ class SimklListsRepository @Inject constructor(
     fun isConnected(profile: String = profileManager.getProfileIdSync()): Boolean = read(profile) != null
     suspend fun accessToken(): String = mutex.withLock { grant(profileManager.getProfileIdSync()).accessToken }
     fun connectionId(): String? = read(profileManager.getProfileIdSync())?.connectionId
-    fun ownsAccessToken(token: String): Boolean = read(profileManager.getProfileIdSync())?.accessToken == token
-    suspend fun refreshRejectedToken(rejected: String, profile: String = profileId(), connection: String? = connectionId()): String = mutex.withLock {
-        if (profile != profileId()) throw SimklListsException("user_token_required")
-        val saved = read(profile) ?: throw SimklListsException("user_token_required")
-        if (saved.connectionId != connection) throw SimklListsException("user_token_required")
-        if (saved.accessToken != rejected) return@withLock saved.accessToken
-        client.refresh(saved.refreshToken).copy(userId = saved.userId, connectionId = saved.connectionId).also { save(profile, it) }.accessToken
+    internal data class RefreshIdentity(val profileId: String, val connectionId: String)
+
+    internal suspend fun refreshIdentityForAccessToken(token: String): RefreshIdentity? = withContext(Dispatchers.IO) {
+        val profile = profileId()
+        read(profile)?.takeIf { it.accessToken == token }?.let { RefreshIdentity(profile, it.connectionId) }
+    }
+
+    internal suspend fun refreshRejectedToken(rejected: String, owner: RefreshIdentity): String = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val profile = owner.profileId
+            if (profile != profileId()) throw SimklListsException("user_token_required")
+            val saved = read(profile) ?: throw SimklListsException("user_token_required")
+            if (saved.connectionId != owner.connectionId) throw SimklListsException("user_token_required")
+            if (saved.accessToken != rejected) return@withLock saved.accessToken
+            val refreshed = client.refresh(saved.refreshToken).copy(userId = saved.userId, connectionId = saved.connectionId)
+            save(profile, refreshed)
+            if (profile != profileId()) throw SimklListsException("user_token_required")
+            refreshed.accessToken
+        }
     }
     suspend fun startDevice(): SimklListsDeviceCode = client.startDevice()
 

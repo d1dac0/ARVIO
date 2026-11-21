@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -66,12 +67,18 @@ class IdleReturnCoordinator internal constructor(
     private var syncJob: Job? = null
 
     /** A player screen is on display (set by the player while it is composed). */
-    @Volatile
-    var isPlayerOpen: Boolean = false
-        set(value) {
-            field = value
-            if (value) stalePlayer = false
-        }
+    private val openPlayers = AtomicInteger()
+    val isPlayerOpen: Boolean
+        get() = openPlayers.get() > 0
+
+    fun onPlayerOpened() {
+        stalePlayer = false
+        openPlayers.incrementAndGet()
+    }
+
+    fun onPlayerClosed() {
+        openPlayers.decrementAndGet()
+    }
 
     @Volatile
     private var stalePlayer = false

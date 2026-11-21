@@ -67,6 +67,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
@@ -446,14 +447,18 @@ class AuthRepository @Inject constructor(
             val hasRefreshToken = !refreshToken.isNullOrBlank()
 
             if (Constants.USE_NETLIFY_CLOUD_SYNC) {
+                if (!cachedUserId.isNullOrBlank()) {
+                    val email = cachedEmail ?: accessToken?.let(::extractUserEmailFromAccessToken).orEmpty()
+                    publishNetlifyIdentity(cachedUserId, email)
+                    return
+                }
                 val shouldRefreshNetlifyToken = !hasAccessToken || isJwtExpired(accessToken ?: "")
                 val usableAccessToken = when {
                     !shouldRefreshNetlifyToken -> accessToken
-                    hasRefreshToken -> refreshNetlifyAccessToken(refreshToken ?: "")
+                    !refreshToken.isNullOrBlank() -> refreshNetlifyAccessToken(refreshToken, timeoutMs = 3_000L)
                     else -> null
                 }
-                val userId = cachedUserId
-                    ?: usableAccessToken?.let { extractUserIdFromAccessToken(it) }
+                val userId = usableAccessToken?.let { extractUserIdFromAccessToken(it) }
                 val email = cachedEmail
                     ?: usableAccessToken?.let { extractUserEmailFromAccessToken(it) }
                     ?: ""
@@ -467,10 +472,7 @@ class AuthRepository @Inject constructor(
                             email = email
                         )
                     }
-                    val profile = UserProfile(id = userId, email = email)
-                    traktRepositoryProvider.get().setUserId(userId)
-                    _userProfile.value = profile
-                    _authState.value = AuthState.Authenticated(userId, email, profile)
+                    publishNetlifyIdentity(userId, email)
                 } else {
                     _authState.value = AuthState.NotAuthenticated
                 }
@@ -1153,7 +1155,14 @@ class AuthRepository @Inject constructor(
         }
     }
 
-    private suspend fun refreshNetlifyAccessToken(refreshToken: String): String? {
+    private suspend fun publishNetlifyIdentity(userId: String, email: String) {
+        val profile = UserProfile(id = userId, email = email)
+        traktRepositoryProvider.get().setUserId(userId)
+        _userProfile.value = profile
+        _authState.value = AuthState.Authenticated(userId, email, profile)
+    }
+
+    private suspend fun refreshNetlifyAccessToken(refreshToken: String, timeoutMs: Long? = null): String? {
         return withContext(Dispatchers.IO) {
             try {
                 val request = Request.Builder()
@@ -1168,7 +1177,9 @@ class AuthRepository @Inject constructor(
                     )
                     .build()
 
-                okHttpClient.newCall(request).execute().use { response ->
+                val call = okHttpClient.newCall(request)
+                if (timeoutMs != null) call.timeout().timeout(timeoutMs, TimeUnit.MILLISECONDS)
+                call.execute().use { response ->
                     val body = response.body?.string().orEmpty()
                     if (!response.isSuccessful) return@withContext null
                     val json = JSONObject(body)

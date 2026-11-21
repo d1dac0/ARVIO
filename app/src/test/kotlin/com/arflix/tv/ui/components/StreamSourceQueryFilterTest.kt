@@ -82,4 +82,20 @@ class StreamSourceQueryFilterTest {
 
         assertThat(sourceMatchesQuery(source, "lat")).isFalse()
     }
+
+    @Test
+    fun progressiveResultsPresentEachSourceOnce() {
+        val streams = listOf(torrent(quality = "720p"), torrent(quality = "1080p"), torrent(quality = "4K"))
+        val presented = mutableListOf<StreamSource>()
+        var cache = emptyMap<StreamSource, String>()
+        for (count in 1..3) {
+            cache = cache.updateSourcePresentations(streams.take(count).reversed()) {
+                presented.add(it)
+                it.quality
+            }
+        }
+
+        assertThat(presented).containsExactlyElementsIn(streams).inOrder()
+        assertThat(cache.values).containsExactly("4K", "1080p", "720p").inOrder()
+    }
 }

@@ -13,7 +13,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.UUID
@@ -52,7 +51,9 @@ class WeTrakrRepository @Inject constructor(
     private val mutex = Mutex()
     private val pending = mutableMapOf<String, Pending>()
     private val cache = mutableMapOf<String, Pair<Long, List<JsonObject>>>()
-    private val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).callTimeout(25, TimeUnit.SECONDS).build()
+    private val http by lazy {
+        com.arflix.tv.network.OkHttpProvider.playbackClient.newBuilder().connectTimeout(15, TimeUnit.SECONDS).callTimeout(25, TimeUnit.SECONDS).build()
+    }
     private var blockedUntil = 0L
     fun profileId(): String = profiles.getProfileIdSync()
     private fun read(profile: String): Grant? = runCatching {

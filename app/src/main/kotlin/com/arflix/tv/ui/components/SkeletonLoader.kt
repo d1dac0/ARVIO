@@ -485,26 +485,6 @@ fun SkeletonDetailsPage(
 }
 
 /**
- * Home page skeleton with multiple rows
- */
-@Composable
-fun SkeletonHomePage(
-    rowCount: Int = 4,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier.padding(start = 24.dp, top = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(32.dp)
-    ) {
-        repeat(rowCount) { index ->
-            SkeletonCategoryRow(
-                cardType = if (index == 0) SkeletonCardType.MEDIA else SkeletonCardType.POSTER
-            )
-        }
-    }
-}
-
-/**
  * Skeleton for the mobile hero banner. The caller supplies the resolved card size.
  */
 @Composable

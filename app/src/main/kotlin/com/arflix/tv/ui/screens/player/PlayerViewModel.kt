@@ -740,6 +740,7 @@ class PlayerViewModel @Inject constructor(
     private var holdsTelegramQuiet = false
 
     override fun onCleared() {
+        geminiLiveService.disconnect()
         if (holdsTelegramQuiet) {
             holdsTelegramQuiet = false
             streamRepository.onPlaybackEnded()

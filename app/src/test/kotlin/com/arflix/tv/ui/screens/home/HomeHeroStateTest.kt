@@ -22,7 +22,6 @@ class HomeHeroStateTest {
     @Test fun `collection without logo never borrows the startup title logo`() {
         val focused = HomeUiState(heroItem = collection)
         assertSame(focused, focused.withBackgroundHero(watching, "startup.png"))
-        assertNull(homeHeroLogo(collection, null, watching, "startup.png"))
     }
 
     @Test fun `startup still seeds hero and late matching logo still loads`() {
@@ -30,8 +29,6 @@ class HomeHeroStateTest {
         assertEquals(watching, seeded.heroItem)
         val decorated = seeded.withBackgroundHero(watching, "logo.png")
         assertEquals("logo.png", decorated.heroLogoUrl)
-        assertEquals("logo.png", homeHeroLogo(watching, null, watching, "logo.png"))
-        assertEquals("current.png", homeHeroLogo(collection, "current.png", watching, "old.png"))
     }
 
     @Test fun `metadata on same item is not rolled back by stale catalog data`() {

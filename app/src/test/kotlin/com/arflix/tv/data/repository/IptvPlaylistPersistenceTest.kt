@@ -4,21 +4,29 @@ import android.app.Application
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
+import com.arflix.tv.data.model.IptvChannel
 import com.arflix.tv.util.settingsDataStore
+import com.google.common.truth.Truth.assertThat
 import io.mockk.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.Cache
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Response
+import okhttp3.Request
 import okhttp3.ResponseBody.Companion.toResponseBody
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.After
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
@@ -29,6 +37,8 @@ import org.robolectric.annotation.ConscryptMode
 @Config(sdk = [28], application = Application::class)
 @ConscryptMode(ConscryptMode.Mode.OFF)
 class IptvPlaylistPersistenceTest {
+    @get:Rule val temp = TemporaryFolder()
+
     private lateinit var profiles: ProfileManager
     private fun repository(client: OkHttpClient = OkHttpClient()) = IptvRepository(RuntimeEnvironment.getApplication(), client, profiles, CloudSyncInvalidationBus())
     private fun playlists() = (1..10).map {
@@ -52,6 +62,61 @@ class IptvPlaylistPersistenceTest {
         every { profiles.profileStringKeyFor(any(), any()) } answers { stringPreferencesKey("${firstArg<String>()}:${secondArg<String>()}") }
     }
     @After fun cleanup() { unmockkStatic("com.arflix.tv.util.DataStoresKt") }
+
+    @Test fun startupKeepsOnlyTheChannelWindowAfterPersistingLargePlaylist() = runBlocking {
+        val repo = repository()
+        repo.savePlaylists(playlists().take(1))
+        val config = repo.observeConfig().first()
+        val channels = List(12_000) { index ->
+            IptvChannel(
+                id = "list_1:channel-$index",
+                name = "Channel $index",
+                streamUrl = "https://streams.example.invalid/$index",
+                group = "News",
+            )
+        }
+
+        repo.storeStartupChannels("main", config, channels, emptyMap())
+
+        assertThat(repo.getMemoryCachedSnapshot()?.channels).hasSize(240)
+        assertThat(repo.getMemoryCachedSnapshot()?.grouped?.get("News")).hasSize(240)
+        assertThat(repo.pagedChannelStoreCount()).isEqualTo(channels.size)
+    }
+
+    @Test fun guideAndPlaylistFetchesLeaveTheSharedHttpCacheUntouched() = runBlocking {
+        MockWebServer().use { server ->
+            Cache(temp.newFolder(), 1024 * 1024L).use { cache ->
+                val client = OkHttpClient.Builder().cache(cache).build()
+                server.enqueue(MockResponse().setHeader("Cache-Control", "max-age=3600").setBody("cached response"))
+                client.newCall(Request.Builder().url(server.url("/small")).build()).execute().use {
+                    assertThat(it.body!!.string()).isEqualTo("cached response")
+                }
+                val cacheBytes = cache.size()
+                assertThat(cacheBytes).isGreaterThan(0L)
+
+                val playlistUrl = server.url("/playlist.m3u")
+                val guideUrl = server.url("/guide.xml")
+                server.enqueue(MockResponse().setHeader("Cache-Control", "max-age=3600").setBody(
+                    "#EXTM3U\n#EXTINF:-1 tvg-id=\"news\" group-title=\"News\",News\nhttps://streams.example.invalid/news"
+                ))
+                server.enqueue(MockResponse().setHeader("Cache-Control", "max-age=3600").setBody(
+                    """<tv><channel id="news"><display-name>News</display-name></channel>
+                    <programme channel="news" start="20200101000000 +0000" stop="20990101000000 +0000">
+                    <title>News Bulletin</title></programme></tv>"""
+                ))
+                val repo = repository(client)
+                repo.savePlaylists(listOf(IptvPlaylistEntry("local", "Local", playlistUrl.toString(), epgUrl = guideUrl.toString())))
+
+                val snapshot = repo.loadSnapshot(forcePlaylistReload = true, forceEpgReload = true, allowNetworkEpgFetch = true)
+
+                assertThat(snapshot.channels).hasSize(1)
+                assertThat(server.takeRequest(1, java.util.concurrent.TimeUnit.SECONDS)?.path).isEqualTo("/small")
+                assertThat(server.takeRequest(1, java.util.concurrent.TimeUnit.SECONDS)?.path).isEqualTo("/playlist.m3u")
+                assertThat(server.takeRequest(1, java.util.concurrent.TimeUnit.SECONDS)?.path).isEqualTo("/guide.xml")
+                assertThat(cache.size()).isEqualTo(cacheBytes)
+            }
+        }
+    }
 
     @Test fun tenPlaylistsSurviveRecreationAndCloudRoundTrip() = runBlocking {
         repository().savePlaylists(playlists())

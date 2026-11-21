@@ -142,9 +142,19 @@ class IdleReturnCoordinatorTest {
         assertEquals(1L, coordinator.syncCompleted.first())
     }
 
+    @Test fun closingThePreviousEpisodeLeavesIdleProtectionActive() = runTest {
+        val coordinator = coordinator()
+        coordinator.onPlayerOpened()
+        coordinator.onPlayerOpened()
+        coordinator.onPlayerClosed()
+        goIdle()
+        com.google.common.truth.Truth.assertThat(coordinator.isPlayerOpen).isTrue()
+        com.google.common.truth.Truth.assertThat(coordinator.shouldDiscardPlayer).isTrue()
+    }
+
     @Test fun resettingTheIdleClockDoesNotMakeTheOldPlayerSafe() = runTest {
         val coordinator = coordinator()
-        coordinator.isPlayerOpen = true
+        coordinator.onPlayerOpened()
         goIdle()
         assertTrue(coordinator.shouldDiscardPlayer)
         coordinator.onAppForeground()
@@ -152,9 +162,9 @@ class IdleReturnCoordinatorTest {
         assertTrue(coordinator.shouldDiscardPlayer)
         coordinator.markActive()
         assertTrue(coordinator.shouldDiscardPlayer)
-        coordinator.isPlayerOpen = false
+        coordinator.onPlayerClosed()
         assertTrue(coordinator.shouldDiscardPlayer)
-        coordinator.isPlayerOpen = true
+        coordinator.onPlayerOpened()
         assertFalse(coordinator.shouldDiscardPlayer)
     }
 }

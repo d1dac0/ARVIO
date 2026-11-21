@@ -18,10 +18,3 @@ internal fun HomeUiState.withBackgroundHero(item: MediaItem?, logoUrl: String?):
         else -> this
     }
 }
-
-internal fun homeHeroLogo(
-    item: MediaItem?,
-    logoUrl: String?,
-    preloadedItem: MediaItem?,
-    preloadedLogoUrl: String?
-): String? = logoUrl ?: preloadedLogoUrl?.takeIf { item.isSameHomeHero(preloadedItem) }

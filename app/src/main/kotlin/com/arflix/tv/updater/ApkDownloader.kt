@@ -26,6 +26,7 @@ class ApkDownloader @Inject constructor(
 
             // Use a dedicated client with longer timeouts for large APK downloads
             val downloadClient = okHttpClient.newBuilder()
+                .cache(null)
                 .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
@@ -42,12 +43,17 @@ class ApkDownloader @Inject constructor(
                     FileOutputStream(destinationFile).use { output ->
                         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                         var downloaded = 0L
+                        var reportedPercent = 0
                         while (true) {
                             val read = input.read(buffer)
                             if (read <= 0) break
                             output.write(buffer, 0, read)
                             downloaded += read
-                            onProgress(downloaded, total)
+                            val percent = total?.let { (downloaded * 100.0 / it).toInt().coerceAtMost(100) } ?: 0
+                            if (percent > reportedPercent) {
+                                reportedPercent = percent
+                                onProgress(downloaded, total)
+                            }
                         }
                         output.flush()
                     }

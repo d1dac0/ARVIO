@@ -105,7 +105,7 @@ fun QuickZapOverlay(
     visible: Boolean,
     currentChannel: EnrichedChannel?,
     channels: List<EnrichedChannel>,
-    nowNextMap: Map<String, IptvNowNext>,
+    nowNextForChannel: (String) -> IptvNowNext?,
     categoriesTree: LiveCategoryTree,
     selectedCategoryId: String,
     onCategorySelected: (String) -> Unit,
@@ -309,7 +309,7 @@ fun QuickZapOverlay(
                     channels = channels,
                     selectedIndex = selectedChannelIndex,
                     isFocused = !categoryListFocused,
-                    nowNextMap = nowNextMap,
+                    nowNextForChannel = nowNextForChannel,
                     modifier = Modifier
                         .width(640.dp)
                         .alpha(if (!categoryListFocused) 1.0f else 0.55f)
@@ -432,7 +432,7 @@ private fun ChannelColumnPanel(
     channels: List<EnrichedChannel>,
     selectedIndex: Int,
     isFocused: Boolean,
-    nowNextMap: Map<String, IptvNowNext>,
+    nowNextForChannel: (String) -> IptvNowNext?,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -445,7 +445,7 @@ private fun ChannelColumnPanel(
             for (offset in -3..-1) {
                 val index = (selectedIndex + offset + channels.size * 10) % channels.size
                 channels.getOrNull(index)?.let { ch ->
-                    val nowNext = nowNextMap[ch.id]
+                    val nowNext = nowNextForChannel(ch.id)
                     NonFocusedChannelSlot(
                         number = ch.number,
                         channel = ch,
@@ -456,7 +456,7 @@ private fun ChannelColumnPanel(
 
             // Centered Focused Channel Slot (offset = 0)
             channels.getOrNull(selectedIndex)?.let { ch ->
-                val nowNext = nowNextMap[ch.id]
+                val nowNext = nowNextForChannel(ch.id)
                 FocusedChannelSlot(
                     number = ch.number,
                     channel = ch,
@@ -469,7 +469,7 @@ private fun ChannelColumnPanel(
             for (offset in 1..4) {
                 val index = (selectedIndex + offset) % channels.size
                 channels.getOrNull(index)?.let { ch ->
-                    val nowNext = nowNextMap[ch.id]
+                    val nowNext = nowNextForChannel(ch.id)
                     NonFocusedChannelSlot(
                         number = ch.number,
                         channel = ch,

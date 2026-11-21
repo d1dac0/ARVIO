@@ -217,7 +217,7 @@ class ProfileViewModel @Inject constructor(
      * This enables instant display when the user actually selects the profile.
      */
     fun preloadForProfile(profile: Profile) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             traktRepository.preloadContinueWatchingForProfile(profile.id)
         }
     }
@@ -533,12 +533,14 @@ class ProfileViewModel @Inject constructor(
             profileRepository.deleteProfile(profile.id)
             showToast(context.getString(R.string.profile_deleted), ToastType.SUCCESS)
             if (activeId == profile.id) {
-                traktRepository.clearAllProfileCaches()
-                watchHistoryRepository.clearProfileCaches()
-                watchlistRepository.clearWatchlistCache()
-                iptvRepository.invalidateCache()
-                profileManager.setCurrentProfileId("default")
-                profileManager.setCurrentProfileName("default")
+                withContext(Dispatchers.Default) {
+                    traktRepository.clearAllProfileCaches()
+                    watchHistoryRepository.clearProfileCaches()
+                    watchlistRepository.clearWatchlistCache()
+                    iptvRepository.invalidateCache()
+                    profileManager.setCurrentProfileId("default")
+                    profileManager.setCurrentProfileName("default")
+                }
             }
             runCatching { cloudSyncRepository.pushToCloud(force = true) }
         }

@@ -59,6 +59,20 @@ val hasDiscordSdk = discordSdkAar.isFile
 val includeX86Abis = providers.gradleProperty("includeX86Abis")
     .orNull
     ?.toBooleanStrictOrNull() == true
+val forkReleaseAbiSplits = providers.gradleProperty("arvioForkReleaseAbiSplits")
+    .orNull
+    ?.toBooleanStrictOrNull() == true
+val armAbis = setOf("armeabi-v7a", "arm64-v8a")
+val telegramApiId = localSecretValue("TELEGRAM_API_ID")
+val telegramApiHash = localSecretValue("TELEGRAM_API_HASH")
+val telegramConfigured = (telegramApiId.toIntOrNull() ?: 0) > 0 &&
+    telegramApiHash.isNotBlank() &&
+    !telegramApiHash.startsWith("your-", ignoreCase = true) &&
+    !telegramApiHash.equals("disabled", ignoreCase = true)
+
+require(!forkReleaseAbiSplits || !includeX86Abis) {
+    "The fork release ABI splits are for ARM devices. Use includeX86Abis for emulator builds."
+}
 
 android {
     namespace = "com.arflix.tv"
@@ -84,8 +98,8 @@ android {
         buildConfigField("Boolean", "FEATURE_PLUGINS_ENABLED", "false")
         buildConfigField("Boolean", "PARTNER_MANAGEMENT_ENABLED", (providers.gradleProperty("partnerManagement").orNull == "true").toString())
         // Use the same resolution for generated values and release validation.
-        buildConfigField("String", "TELEGRAM_API_ID", "\"${escapeBuildConfigString(localSecretValue("TELEGRAM_API_ID"))}\"")
-        buildConfigField("String", "TELEGRAM_API_HASH", "\"${escapeBuildConfigString(localSecretValue("TELEGRAM_API_HASH"))}\"")
+        buildConfigField("String", "TELEGRAM_API_ID", "\"${escapeBuildConfigString(telegramApiId)}\"")
+        buildConfigField("String", "TELEGRAM_API_HASH", "\"${escapeBuildConfigString(telegramApiHash)}\"")
         // Public endpoint override for isolated preview testing; never a provider API key.
         buildConfigField("String", "SPORTS_METADATA_URL", "\"${escapeBuildConfigString(localSecretValue("SPORTS_METADATA_URL"))}\"")
         // Emergency Supabase cost guard. Keep high-volume public metadata and
@@ -125,14 +139,12 @@ android {
         )
 
 
-        // Keep release downloads ARM-universal by default. Developers can add x86
-        // emulator support with -PincludeX86Abis=true without changing this file.
-        ndk {
-            abiFilters += buildList {
-                addAll(listOf("armeabi-v7a", "arm64-v8a"))
-                if (includeX86Abis) {
-                    addAll(listOf("x86", "x86_64"))
-                }
+        // The split configuration supplies the ABI filters for fork releases.
+        // Other builds keep their existing ARM default and optional emulator ABIs.
+        if (!forkReleaseAbiSplits) {
+            ndk {
+                abiFilters += armAbis
+                if (includeX86Abis) abiFilters += setOf("x86", "x86_64")
             }
         }
 
@@ -151,6 +163,17 @@ android {
 
         // Enable R8 full mode for better optimization
         proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+    }
+
+    if (forkReleaseAbiSplits) {
+        splits {
+            abi {
+                isEnable = true
+                reset()
+                include(*armAbis.toTypedArray())
+                isUniversalApk = true
+            }
+        }
     }
 
     productFlavors {
@@ -304,6 +327,10 @@ android {
             useLegacyPackaging = false  // Required for 16KB page size support
             // sherpa-onnx's JNI library only needs libonnxruntime; its C/C++ API libraries are unused.
             excludes += setOf("lib/*/libsherpa-onnx-c-api.so", "lib/*/libsherpa-onnx-cxx-api.so")
+            if (forkReleaseAbiSplits) {
+                excludes += setOf("lib/x86/**", "lib/x86_64/**")
+                if (!telegramConfigured) excludes += "lib/*/libtdjni.so"
+            }
         }
     }
 
@@ -622,9 +649,7 @@ val validateReleaseCloudSecrets = tasks.register("validateReleaseCloudSecrets") 
         val supabaseUrl = localSecretValue("SUPABASE_URL")
         val traktClientId = localSecretValue("TRAKT_CLIENT_ID")
         val traktClientSecret = localSecretValue("TRAKT_CLIENT_SECRET")
-        val telegramApiId = localSecretValue("TELEGRAM_API_ID").toIntOrNull() ?: 0
-        val telegramApiHash = localSecretValue("TELEGRAM_API_HASH")
-        requireIntegration(telegramApiId > 0 && telegramApiHash.matches(Regex("[a-fA-F0-9]{32}"))) {
+        requireIntegration(telegramConfigured && telegramApiHash.matches(Regex("[a-fA-F0-9]{32}"))) {
             "Release builds require valid TELEGRAM_API_ID and TELEGRAM_API_HASH values. " +
                 "Refusing to ship an official build with Telegram disabled."
         }

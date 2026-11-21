@@ -38,18 +38,21 @@ object TmdbImageSizing {
 
     private val tmdbImageUrl = Regex("""^(https?://image\.tmdb\.org/t/p/)(original|w\d+)(/.+)$""")
 
+    /** Use the 185px profile image for cast thumbnails and the person portrait. */
+    fun forProfile(url: String): String = forSlot(url, 185, 0, Kind.POSTER)
+
     /**
      * Returns [url] with the smallest [kind] size that fills a [slotWidthPx] × [slotHeightPx] slot
      * drawn with a crop scale. Pass `0` for [slotHeightPx] when only the width is known.
      */
-    fun forSlot(url: String, slotWidthPx: Int, slotHeightPx: Int, kind: Kind): String {
+    fun forSlot(url: String, slotWidthPx: Int, slotHeightPx: Int, kind: Kind, maxUpscale: Float = 1f): String {
         if (slotWidthPx <= 0) return url
         val match = tmdbImageUrl.matchEntire(url) ?: return url
         val (prefix, currentSize, path) = match.destructured
 
         // A crop fills the slot on its tighter axis, so a wide image in a tall slot needs more width.
         val neededWidth = maxOf(slotWidthPx, ceil(slotHeightPx.coerceAtLeast(0) * kind.aspect).toInt())
-        val chosenWidth = kind.widths.firstOrNull { it >= neededWidth }
+        val chosenWidth = kind.widths.firstOrNull { it * maxUpscale >= neededWidth }
         val currentWidth = currentSize.removePrefix("w").toIntOrNull()
 
         // Never ask for more than the stored URL already carries.

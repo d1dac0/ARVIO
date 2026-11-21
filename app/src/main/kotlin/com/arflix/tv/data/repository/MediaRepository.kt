@@ -1,5 +1,6 @@
 package com.arflix.tv.data.repository
 
+import android.app.ActivityManager
 import android.content.Context
 import com.arflix.tv.R
 import com.arflix.tv.data.api.TmdbApi
@@ -66,7 +67,7 @@ import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
+import java.util.Collections
 import com.arflix.tv.util.ParsedCatalogUrl
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -166,26 +167,49 @@ class MediaRepository @Inject constructor(
         mdblistCollectionRefsCache.clear()
     }
 
+    internal fun trimMemory() {
+        clearMediaCache()
+        watchProvidersCache.clear()
+        imdbRatingCache.clear()
+        imdbEpisodeRatingsCache.clear()
+        imdbRatingsByIdCache.clear()
+        episodeImdbIdCache.clear()
+        imdbIdCache.clear()
+        addonImdbToTmdbCache.clear()
+        addonTitleToTmdbCache.clear()
+    }
+
+    private val lowRamDevice = (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
+        ?.isLowRamDevice == true
+
+    private fun <V> boundedCache(capacity: Int): MutableMap<String, V> {
+        val limit = if (lowRamDevice) capacity / 2 else capacity
+        return Collections.synchronizedMap(object : LinkedHashMap<String, V>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, V>): Boolean =
+                size > limit
+        })
+    }
+
     private data class MediaCacheEntry(val item: MediaItem, val timestamp: Long, val complete: Boolean)
-    private val detailsCache = ConcurrentHashMap<String, MediaCacheEntry>()
+    private val detailsCache = boundedCache<MediaCacheEntry>(400)
     private val collectionCardSlots = Semaphore(6)
-    private val castCache = mutableMapOf<String, CacheEntry<List<CastMember>>>()
-    private val similarCache = mutableMapOf<String, CacheEntry<List<MediaItem>>>()
-    private val logoCache = ConcurrentHashMap<String, CacheEntry<String?>>()
-    private val reviewsCache = mutableMapOf<String, CacheEntry<List<Review>>>()
-    private val watchProvidersCache = mutableMapOf<String, CacheEntry<StreamingServicesResult?>>()
-    private val seasonEpisodesCache = mutableMapOf<String, CacheEntry<List<Episode>>>()
-    private val imdbRatingCache = ConcurrentHashMap<String, CacheEntry<String>>()
-    private val imdbEpisodeRatingsCache = ConcurrentHashMap<String, CacheEntry<Map<Pair<Int, Int>, String>>>()
-    private val imdbRatingsByIdCache = ConcurrentHashMap<String, CacheEntry<String>>()
-    private val episodeImdbIdCache = ConcurrentHashMap<String, CacheEntry<String>>()
-    private val imdbIdCache = ConcurrentHashMap<String, String>()
-    private val addonImdbToTmdbCache = ConcurrentHashMap<String, CacheEntry<Pair<MediaType, Int>?>>()
-    private val addonTitleToTmdbCache = ConcurrentHashMap<String, CacheEntry<Pair<MediaType, Int>?>>()
-    private val homeServerLogoRefCache = ConcurrentHashMap<String, CacheEntry<Pair<MediaType, Int>?>>()
-    private val collectionRefsCache = ConcurrentHashMap<String, CacheEntry<CollectionRefs>>()
-    private val tmdbCatalogRefsCache = ConcurrentHashMap<String, CacheEntry<List<Pair<MediaType, Int>>>>()
-    private val mdblistCollectionRefsCache = ConcurrentHashMap<String, CacheEntry<List<Pair<MediaType, Int>>>>()
+    private val castCache = boundedCache<CacheEntry<List<CastMember>>>(50)
+    private val similarCache = boundedCache<CacheEntry<List<MediaItem>>>(50)
+    private val logoCache = boundedCache<CacheEntry<String?>>(100)
+    private val reviewsCache = boundedCache<CacheEntry<List<Review>>>(50)
+    private val watchProvidersCache = boundedCache<CacheEntry<StreamingServicesResult?>>(50)
+    private val seasonEpisodesCache = boundedCache<CacheEntry<List<Episode>>>(50)
+    private val imdbRatingCache = boundedCache<CacheEntry<String>>(100)
+    private val imdbEpisodeRatingsCache = boundedCache<CacheEntry<Map<Pair<Int, Int>, String>>>(50)
+    private val imdbRatingsByIdCache = boundedCache<CacheEntry<String>>(100)
+    private val episodeImdbIdCache = boundedCache<CacheEntry<String>>(100)
+    private val imdbIdCache = boundedCache<String>(100)
+    private val addonImdbToTmdbCache = boundedCache<CacheEntry<Pair<MediaType, Int>?>>(100)
+    private val addonTitleToTmdbCache = boundedCache<CacheEntry<Pair<MediaType, Int>?>>(100)
+    private val homeServerLogoRefCache = boundedCache<CacheEntry<Pair<MediaType, Int>?>>(100)
+    private val collectionRefsCache = boundedCache<CacheEntry<CollectionRefs>>(50)
+    private val tmdbCatalogRefsCache = boundedCache<CacheEntry<List<Pair<MediaType, Int>>>>(50)
+    private val mdblistCollectionRefsCache = boundedCache<CacheEntry<List<Pair<MediaType, Int>>>>(50)
     private val _episodeRatingsUpdated = MutableSharedFlow<Pair<Int, Int>>(extraBufferCapacity = 64)
     val episodeRatingsUpdated = _episodeRatingsUpdated.asSharedFlow()
 
@@ -757,9 +781,11 @@ class MediaRepository @Inject constructor(
         if (item.isAddonNative) addonNative.restore(item)
         val cacheKey = detailsCacheKey(item.mediaType, item.id)
         val now = System.currentTimeMillis()
-        detailsCache.compute(cacheKey) { _, existing ->
-            if (existing != null && existing.complete && now - existing.timestamp < CACHE_TTL_MS) existing
-            else MediaCacheEntry(item, now, complete = false)
+        synchronized(detailsCache) {
+            val existing = detailsCache[cacheKey]
+            if (existing == null || !existing.complete || now - existing.timestamp >= CACHE_TTL_MS) {
+                detailsCache[cacheKey] = MediaCacheEntry(item, now, complete = false)
+            }
         }
     }
 

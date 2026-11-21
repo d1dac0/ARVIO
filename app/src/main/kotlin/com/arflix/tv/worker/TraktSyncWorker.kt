@@ -3,6 +3,7 @@ package com.arflix.tv.worker
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.arflix.tv.data.repository.ProfileManager
 import com.arflix.tv.data.repository.TraktRepository
 import com.arflix.tv.data.repository.TraktSyncService
 import com.arflix.tv.data.repository.SyncResult
@@ -29,6 +30,7 @@ class TraktSyncWorker(
     interface TraktSyncWorkerEntryPoint {
         fun traktRepository(): TraktRepository
         fun traktSyncService(): TraktSyncService
+        fun profileManager(): ProfileManager
     }
 
     private val deps: TraktSyncWorkerEntryPoint by lazy {
@@ -49,6 +51,10 @@ class TraktSyncWorker(
     }
 
     override suspend fun doWork(): Result {
+        // A WorkManager wake may start this process without an activity, so nothing
+        // has seeded the cached profile id. The sync service builds every profile-scoped
+        // key and Supabase filter from getProfileIdSync() — sync the right profile.
+        deps.profileManager().ensureInitialized()
         val connection = deps.traktRepository().connection.first()
         if (!connection.connected || connection.reconnectRequired) {
             return Result.success()

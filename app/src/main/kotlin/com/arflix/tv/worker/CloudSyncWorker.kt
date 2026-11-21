@@ -13,6 +13,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.arflix.tv.data.repository.CloudSyncRepository
 import com.arflix.tv.data.repository.AuthRepository
+import com.arflix.tv.data.repository.ProfileManager
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
@@ -23,11 +24,15 @@ class CloudSyncWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
     private val cloudSyncRepository: CloudSyncRepository,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val profileManager: ProfileManager
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {
         Log.i(TAG, "Executing background cloud sync recovery")
+        // A WorkManager wake may start this process without an activity; seed the
+        // cached profile id so profile-scoped keys resolve for the active profile.
+        profileManager.ensureInitialized()
 
         return try {
             if (authRepository.getCurrentUserIdForSync().isNullOrBlank() ||

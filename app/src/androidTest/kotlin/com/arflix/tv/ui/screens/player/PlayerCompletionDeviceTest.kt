@@ -184,6 +184,7 @@ class PlayerCompletionDeviceTest {
             selectedStreamUrl = source.url, streams = listOf(source), subtitlePreloadEnabled = false, autoPlayNext = autoplay))
         every { model.uiState } returns state
         coEvery { model.isAllowedForKids(any(), any()) } returns true
+        coEvery { model.iptvVodPolicy(any()) } returns null
         every { model.isTranslatingLive } returns MutableStateFlow(false)
         every { model.idleReturnCoordinator.idleReturns } returns MutableStateFlow(0L)
         every { model.idleReturnCoordinator.idleThresholdMs } returns 60_000L

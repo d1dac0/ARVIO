@@ -585,6 +585,12 @@ class StreamRepository @Inject constructor(
             }
 
             override fun onTrimMemory(level: Int) {
+                // UI_HIDDEN (20) numerically exceeds TRIM_MEMORY_RUNNING_LOW (10) but only
+                // signals the UI went to the background, not real memory pressure; clearing
+                // there would drop caches on every backgrounding and force re-resolution.
+                if (level < ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+                    level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN
+                ) return
                 clearStreamMemoryCaches()
             }
         })

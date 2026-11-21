@@ -156,6 +156,8 @@ class PlayerCompletionDeviceTest {
             selectedStreamUrl = source.url, streams = listOf(source), subtitlePreloadEnabled = false, autoPlayNext = autoplay))
         every { model.uiState } returns state
         every { model.isTranslatingLive } returns MutableStateFlow(false)
+        every { model.idleReturnCoordinator.idleReturns } returns MutableStateFlow(0L)
+        every { model.idleReturnCoordinator.idleThresholdMs } returns 60_000L
         if (!preserveMetadataStub) coEvery { model.adjacentEpisodeIdentity(any(), any(), true) } returns next
         coEvery { model.adjacentEpisodeIdentity(any(), any(), false) } returns null
         coEvery { model.resolveNextEpisodeAirDate(any(), any()) } returns resolution

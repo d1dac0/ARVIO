@@ -360,6 +360,15 @@ class DetailsViewModel @Inject constructor(
     private var focusedStreamPrewarmJob: kotlinx.coroutines.Job? = null
     private var streamListPrewarmJob: kotlinx.coroutines.Job? = null
     private var lastStreamListPrewarmKey: String = ""
+    // Every read-merge-write cycle that updates [DetailsUiState.streams] runs under this
+    // lock. The progressive merge sorts on Dispatchers.Default and publishes when it
+    // resumes, so the check-then-publish between merge and write is only atomic while
+    // the resumption lands on the same thread the supplemental publishers (IPTV VOD,
+    // home servers, plugins, Telegram) run on; on an unconfined scope it resumes on the
+    // worker instead, and a stale merge would overwrite the rows such a publisher wrote
+    // in between. Holding one lock from reading the current list to publishing the
+    // merged one keeps the last publisher's rows on top regardless of dispatcher.
+    private val streamListPublishMutex = Mutex()
     // Guards overlapping season loads: only the most recently requested season may apply its result.
     private var seasonLoadJob: kotlinx.coroutines.Job? = null
     private var seasonPrefetchJob: kotlinx.coroutines.Job? = null
@@ -2170,14 +2179,16 @@ class DetailsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(telegramSearchRow = TelegramSearchRow.SEARCHING)
         telegramSearchJob = viewModelScope.launch {
             fun isCurrent() = request.requestId == loadStreamsRequestId
-            fun merge(found: List<StreamSource>) {
+            suspend fun merge(found: List<StreamSource>) {
                 if (!isCurrent() || found.isEmpty()) return
-                _uiState.value = _uiState.value.copy(
-                    streams = sortPlayableStreamsFirst(
-                        (_uiState.value.streams + found).distinctBy(::providerScopedStreamIdentity)
-                    ),
-                    isLoadingStreams = false
-                )
+                streamListPublishMutex.withLock {
+                    _uiState.value = _uiState.value.copy(
+                        streams = sortPlayableStreamsFirst(
+                            (_uiState.value.streams + found).distinctBy(::providerScopedStreamIdentity)
+                        ),
+                        isLoadingStreams = false
+                    )
+                }
             }
             val found = try {
                 streamRepository.searchTelegramNow(
@@ -2202,6 +2213,11 @@ class DetailsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Merges [streams] with the supplemental rows already published. Must be called
+     * while holding [streamListPublishMutex], so the caller can publish the returned
+     * list without a concurrent provider overwriting or being overwritten in between.
+     */
     private suspend fun mergeProgressiveStreams(streams: List<StreamSource>): List<StreamSource> {
         while (true) {
             val currentStreams = _uiState.value.streams
@@ -2422,15 +2438,17 @@ class DetailsViewModel @Inject constructor(
                                 val updatedNames = current.loadingPluginNames - scraperInfo.name
                                 if (results.isNotEmpty()) {
                                     val pluginStreams = results.map { it.toStreamSource() }
-                                    val merged = sortPlayableStreamsFirst(
-                                        (current.streams + pluginStreams)
-                                            .distinctBy(::providerScopedStreamIdentity)
-                                    )
-                                    _uiState.value = current.copy(
-                                        streams = merged,
-                                        isLoadingStreams = false,
-                                        loadingPluginNames = updatedNames
-                                    )
+                                    streamListPublishMutex.withLock {
+                                        val merged = sortPlayableStreamsFirst(
+                                            (_uiState.value.streams + pluginStreams)
+                                                .distinctBy(::providerScopedStreamIdentity)
+                                        )
+                                        _uiState.value = _uiState.value.copy(
+                                            streams = merged,
+                                            isLoadingStreams = false,
+                                            loadingPluginNames = _uiState.value.loadingPluginNames - scraperInfo.name
+                                        )
+                                    }
                                 } else {
                                     _uiState.value = current.copy(
                                         loadingPluginNames = updatedNames
@@ -2502,28 +2520,31 @@ class DetailsViewModel @Inject constructor(
                         nativeType = nativeType
                     ).collect { progressive ->
                         if (!isCurrentRequest()) return@collect
-                        val mergedStreams = mergeProgressiveStreams(progressive.streams)
-                        if (!isCurrentRequest()) return@collect
+                        val mergedStreams = streamListPublishMutex.withLock {
+                            val merged = mergeProgressiveStreams(progressive.streams)
+                            if (!isCurrentRequest()) return@withLock null
+                            val supplementalSourcesStillLoading =
+                                homeServerAppendJob?.isActive == true || vodAppendJob?.isActive == true
+                            _uiState.value = _uiState.value.copy(
+                                isLoadingStreams = merged.isEmpty() &&
+                                    (!progressive.isFinal || supplementalSourcesStillLoading || pluginScraperJob?.isActive == true),
+                                completedAddons = progressive.completedAddons,
+                                totalAddons = progressive.totalAddons,
+                                streams = merged,
+                                subtitles = progressive.subtitles,
+                                addonNotices = progressive.notices,
+                                hasStreamingAddons = hasAnyStreamProvider(
+                                    streamingAddonCount = enabledStreamingAddons,
+                                    hasHomeServerConnections = hasHomeServerConnections,
+                                    hasIptvVodProviders = hasIptvVodProviders
+                                )
+                            )
+                            merged
+                        } ?: return@collect
                         Log.d(
                             TAG,
                             "[MovieSources] progressive requestId=$requestId final=${progressive.isFinal} " +
                                 "incoming=${progressive.streams.size} merged=${mergedStreams.size} subtitles=${progressive.subtitles.size}"
-                        )
-                        val supplementalSourcesStillLoading =
-                            homeServerAppendJob?.isActive == true || vodAppendJob?.isActive == true
-                        _uiState.value = _uiState.value.copy(
-                            isLoadingStreams = mergedStreams.isEmpty() &&
-                                (!progressive.isFinal || supplementalSourcesStillLoading || pluginScraperJob?.isActive == true),
-                            completedAddons = progressive.completedAddons,
-                            totalAddons = progressive.totalAddons,
-                            streams = mergedStreams,
-                            subtitles = progressive.subtitles,
-                            addonNotices = progressive.notices,
-                            hasStreamingAddons = hasAnyStreamProvider(
-                                streamingAddonCount = enabledStreamingAddons,
-                                hasHomeServerConnections = hasHomeServerConnections,
-                                hasIptvVodProviders = hasIptvVodProviders
-                            )
                         )
                         prewarmVisibleStreams(mergedStreams)
                         if (progressive.isFinal) {
@@ -2568,24 +2589,27 @@ class DetailsViewModel @Inject constructor(
                         nativeType = nativeType
                     ).collect { progressive ->
                         if (!isCurrentRequest()) return@collect
-                        val mergedStreams = mergeProgressiveStreams(progressive.streams)
-                        if (!isCurrentRequest()) return@collect
-                        val supplementalSourcesStillLoading =
-                            homeServerAppendJob?.isActive == true || vodAppendJob?.isActive == true
-                        _uiState.value = _uiState.value.copy(
-                            isLoadingStreams = mergedStreams.isEmpty() &&
-                                (!progressive.isFinal || supplementalSourcesStillLoading || pluginScraperJob?.isActive == true),
-                            completedAddons = progressive.completedAddons,
-                            totalAddons = progressive.totalAddons,
-                            streams = mergedStreams,
-                            subtitles = progressive.subtitles,
-                            addonNotices = progressive.notices,
-                            hasStreamingAddons = hasAnyStreamProvider(
-                                streamingAddonCount = enabledStreamingAddons,
-                                hasHomeServerConnections = hasHomeServerConnections,
-                                hasIptvVodProviders = hasIptvVodProviders
+                        val mergedStreams = streamListPublishMutex.withLock {
+                            val merged = mergeProgressiveStreams(progressive.streams)
+                            if (!isCurrentRequest()) return@withLock null
+                            val supplementalSourcesStillLoading =
+                                homeServerAppendJob?.isActive == true || vodAppendJob?.isActive == true
+                            _uiState.value = _uiState.value.copy(
+                                isLoadingStreams = merged.isEmpty() &&
+                                    (!progressive.isFinal || supplementalSourcesStillLoading || pluginScraperJob?.isActive == true),
+                                completedAddons = progressive.completedAddons,
+                                totalAddons = progressive.totalAddons,
+                                streams = merged,
+                                subtitles = progressive.subtitles,
+                                addonNotices = progressive.notices,
+                                hasStreamingAddons = hasAnyStreamProvider(
+                                    streamingAddonCount = enabledStreamingAddons,
+                                    hasHomeServerConnections = hasHomeServerConnections,
+                                    hasIptvVodProviders = hasIptvVodProviders
+                                )
                             )
-                        )
+                            merged
+                        } ?: return@collect
                         prewarmVisibleStreams(mergedStreams)
                     }
                     return@launch
@@ -3583,21 +3607,24 @@ class DetailsViewModel @Inject constructor(
         if (validSources.isEmpty()) {
             return
         }
-        val latest = _uiState.value.streams
-        if (requestId != loadStreamsRequestId ||
-            currentMediaType != requestMediaType ||
-            currentMediaId != requestMediaId
-        ) {
-            return
-        }
-        val mergedStreams = sortPlayableStreamsFirst(
-            (latest + validSources)
-                .distinctBy(::providerScopedStreamIdentity)
-        )
-        _uiState.value = _uiState.value.copy(
-            streams = mergedStreams,
-            isLoadingStreams = false
-        )
+        val mergedStreams = streamListPublishMutex.withLock {
+            val latest = _uiState.value.streams
+            if (requestId != loadStreamsRequestId ||
+                currentMediaType != requestMediaType ||
+                currentMediaId != requestMediaId
+            ) {
+                return@withLock null
+            }
+            val merged = sortPlayableStreamsFirst(
+                (latest + validSources)
+                    .distinctBy(::providerScopedStreamIdentity)
+            )
+            _uiState.value = _uiState.value.copy(
+                streams = merged,
+                isLoadingStreams = false
+            )
+            merged
+        } ?: return
         prewarmVisibleStreams(mergedStreams)
     }
 
@@ -3646,21 +3673,24 @@ class DetailsViewModel @Inject constructor(
         if (validVodSources.isEmpty()) {
             return
         }
-        val latest = _uiState.value.streams
-        if (requestId != loadStreamsRequestId ||
-            currentMediaType != requestMediaType ||
-            currentMediaId != requestMediaId
-        ) {
-            return
-        }
-        val mergedStreams = sortPlayableStreamsFirst(
-            (latest + validVodSources)
-                .distinctBy(::providerScopedStreamIdentity)
-        )
-        _uiState.value = _uiState.value.copy(
-            streams = mergedStreams,
-            isLoadingStreams = false
-        )
+        val mergedStreams = streamListPublishMutex.withLock {
+            val latest = _uiState.value.streams
+            if (requestId != loadStreamsRequestId ||
+                currentMediaType != requestMediaType ||
+                currentMediaId != requestMediaId
+            ) {
+                return@withLock null
+            }
+            val merged = sortPlayableStreamsFirst(
+                (latest + validVodSources)
+                    .distinctBy(::providerScopedStreamIdentity)
+            )
+            _uiState.value = _uiState.value.copy(
+                streams = merged,
+                isLoadingStreams = false
+            )
+            merged
+        } ?: return
         prewarmVisibleStreams(mergedStreams)
     }
 

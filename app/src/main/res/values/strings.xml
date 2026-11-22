@@ -819,7 +819,6 @@
     <string name="settings_arvio_cloud">ARVIO Cloud</string>
     <string name="settings_cloud_account_desc">Optional account for syncing profiles, addons, catalogs and IPTV settings</string>
     <string name="settings_trakt_desc">Sync watch history, progress, and watchlist</string>
-    <string name="settings_telegram_desc">Search your channels and groups for video files</string>
     <string name="settings_badge_open">OPEN</string>
     <string name="settings_sync_local_cloud_now">Syncing local and cloud state now</string>
     <string name="settings_upload_restore_now">Upload local state, then restore from cloud now</string>
@@ -989,43 +988,7 @@
     <!-- Context menu hint -->
     <string name="context_press_back_cancel">Press Back to cancel</string>
 
-    <!-- Extracted from code: Telegram and Plugin screens -->
-    <string name="telegram_connecting">Connecting...</string>
-    <string name="telegram_preparing_qr">Preparing QR code...</string>
-    <string name="telegram_connect_title">Connect Telegram</string>
-    <string name="telegram_connect_desc">Search your channels and groups for video files whenever you open a movie or show.</string>
-    <string name="telegram_disclaimer">Arvio is not responsible for the content streamed through this feature. Only connect your own account and use it fairly — respect copyright and applicable laws.</string>
-    <string name="telegram_scan_title">Scan with Telegram</string>
-    <string name="telegram_scan_instructions">Open Telegram on your phone → Settings → Devices → Link Desktop Device</string>
-    <string name="telegram_qr_code_desc">Telegram QR code</string>
-    <string name="telegram_qr_expires">QR code expires in 30 seconds — refreshes automatically</string>
-    <string name="telegram_phone_title">Enter Phone Number</string>
-    <string name="telegram_phone_desc">Use the same number registered with your Telegram account.</string>
-    <string name="telegram_phone_label">Phone number</string>
-    <string name="telegram_phone_error">Must start with + and include country code, e.g. +1 for US, +44 for UK</string>
-    <string name="telegram_phone_format">International format: +[country code][number]</string>
-    <string name="telegram_sending_code">Sending code...</string>
-    <string name="telegram_send_code">SEND CODE</string>
-    <string name="telegram_code_sent">Code sent to your Telegram app</string>
-    <string name="telegram_code_title">Enter Code</string>
-    <string name="telegram_code_desc">Check your Telegram app for a %1$d-digit code.</string>
-    <string name="telegram_code_label">Verification code</string>
-    <string name="telegram_2fa_title">Two-Step Verification</string>
-    <string name="telegram_2fa_desc">Your account has an additional password.</string>
-    <string name="telegram_password_label">Password</string>
-    <string name="telegram_signed_in_as">Signed in as %1$s</string>
-    <string name="telegram_disconnect_btn">DISCONNECT</string>
-    <string name="telegram_video_cache">Video Cache</string>
-    <string name="telegram_clear_cache_btn">CLEAR</string>
-    <string name="telegram_search_on_click_title">Only search Telegram when clicking the Telegram source</string>
-    <string name="telegram_search_on_click_desc">Avoids Telegram\'s search limit. Turn off to search Telegram automatically with the other sources.</string>
-    <string name="telegram_search_row_idle">Click to search Telegram</string>
-    <string name="telegram_search_row_searching">Searching Telegram…</string>
-    <string name="telegram_search_row_none">No Telegram sources found — select to search again</string>
-    <string name="telegram_connection_failed">Connection Failed</string>
-    <string name="telegram_try_again">TRY AGAIN</string>
-    <string name="telegram_disconnect_confirm_title">Disconnect Telegram?</string>
-    <string name="telegram_disconnect_confirm_desc">You\'ll need to sign in again to use Telegram as a source.</string>
+    <!-- Extracted from code: Plugin screens -->
     <string name="plugin_screen_title">Plugins (Testing)</string>
     <string name="plugin_screen_add_repo">Add Repository</string>
     <string name="plugin_screen_installed_repos">Installed Repositories</string>
@@ -1042,14 +1005,13 @@
 
     <!-- Extracted from code: Crash report screen -->
     <string name="crash_title">⚠️ ARVIO Encountered an Error</string>
-    <string name="crash_desc_tv">Scan the QR code below with your phone camera to automatically copy the crash report &amp; open our Discord bug channel.</string>
-    <string name="crash_desc_mobile">We apologize for the interruption. You can report this crash directly to our Discord channel to help us fix it.</string>
-    <string name="crash_qr_hint">Scan to open arvio.tv — 1 tap to copy report &amp; jump into Discord.</string>
+    <string name="crash_hint_tv">Restart ARVIO to continue. The details below identify this crash if you report it.</string>
+    <string name="crash_hint_mobile">Sorry for the interruption. Copy the crash report to include it when you report the problem.</string>
+    <string name="crash_copy_report">Copy crash report</string>
+    <string name="crash_report_copied">Crash report copied</string>
     <string name="crash_details_title">Crash Reference Details</string>
     <string name="crash_details_body">ID: %1$s\nTime: %2$s\nVersion: %3$s\nError: %4$s</string>
     <string name="crash_error_unexpected">Unexpected error</string>
-    <string name="crash_copied_toast">Crash details copied! Opening Discord...</string>
-    <string name="crash_report_discord">Report on Discord</string>
     <string name="crash_restart_app">Restart ARVIO</string>
 
     <!-- Extracted from code: Profile, Login and Collections -->
@@ -1828,7 +1790,6 @@
     <string name="trakt_library_load_failed">Could not load this list from Trakt. Try again.</string>
     <string name="sync_supabase_auth_failed">Supabase auth failed</string>
     <string name="launcher_continue_dash">%1$s - %2$s</string>
-    <string name="telegram_search_timed_out">Telegram search timed out</string>
 
     <!-- Extracted from code: Profile / TV / device-auth -->
     <string name="profile_avatar_import_failed">Could not import avatar image</string>
@@ -1851,7 +1812,7 @@
     <string name="collection_not_found">Collection not found</string>
 
 
-    <!-- Extracted from code: Auth / HomeServer / Telegram error messages -->
+    <!-- Extracted from code: Auth / HomeServer error messages -->
     <string name="auth_account_exists">Account already exists. Sign in instead.</string>
     <string name="auth_signin_retry">Sign in failed. Please try again.</string>
     <string name="auth_invalid_credentials">Invalid email or password.</string>
@@ -1867,9 +1828,6 @@
     <string name="homeserver_signin_failed_code">Server sign in failed (%1$d)</string>
     <string name="homeserver_no_playable_account">Server sign in did not return a playable account</string>
     <string name="homeserver_missing_token">Missing account token</string>
-    <string name="telegram_search_failed">Telegram search failed</string>
-    <string name="telegram_too_many_searches">Too many searches — please wait %1$ds before retrying</string>
-    <string name="telegram_error_raw">Telegram: %1$s</string>
 
 
     <!-- Extracted from code: Auth validation / addons / updater / collection templates -->
@@ -1990,9 +1948,6 @@
     <string name="program_no_title">No Title</string>
     <string name="program_unknown">Unknown program</string>
     <string name="sync_in_progress">Sync already in progress</string>
-    <string name="telegram_tdlib_failed">TDLib failed to start: %1$s</string>
-    <string name="telegram_tdlib_unavailable">TDLib not available on this device</string>
-    <string name="telegram_not_configured">Telegram integration is not configured in this build</string>
 
 
     <!-- Live TV category context menu -->
@@ -2009,15 +1964,6 @@
     <string name="live_group_pin_required_message">Set a PIN on this profile before locking TV groups.</string>
     <string name="ratings">Episode Ratings</string>
 
-    <!-- Discord Rich Presence -->
-    <string name="discord_connect_title">Connect Discord</string>
-    <string name="discord_rpc_subtitle">Rich Presence Integration</string>
-    <string name="discord_qr_explanation">Scan this QR code with your phone camera to authorize Discord Rich Presence for your profile.</string>
-    <string name="discord_connecting">Connecting...</string>
-    <string name="discord_waiting_approval">Waiting for approval...</string>
-    <string name="discord_qr_instructions">1. Scan QR code on your phone\n2. Tap \'Authorize\' on Discord\n3. Connects automatically</string>
-    <string name="discord_not_included_in_build">Not included in this build</string>
-    <string name="discord_rpc_help_desc">Show your watch status on your Discord profile.</string>
     <string name="live_sources_empty">No other sources found for this channel.</string>
     <string name="live_sources_failed">Could not load sources. Please try again.</string>
     <string name="settings_iptv_fallback_logos">Fallback channel logos</string>
@@ -2028,15 +1974,13 @@
     <string name="settings_desc_stream_integrations">Reorder integrations to control playback and loading priority.</string>
     <string name="settings_stream_integrations_list_title">Integrations</string>
     <string name="settings_stream_integrations_helper">Higher integrations are searched first.</string>
-    <string name="settings_no_stream_integrations_configured">No stream integrations configured. Add addons, plugins, home servers, IPTV playlists, or Telegram to set their playback order.</string>
+    <string name="settings_no_stream_integrations_configured">No stream integrations configured. Add addons, plugins, home servers or IPTV playlists to set their playback order.</string>
     <string name="stream_integration_home_server">Home Server</string>
     <string name="stream_integration_home_server_desc">Local and personal media servers (Jellyfin, Emby, Plex).</string>
     <string name="stream_integration_stremio">Stremio Addons</string>
     <string name="stream_integration_stremio_desc">Installed community streaming and debrid addons.</string>
     <string name="stream_integration_plugins">Plugins &amp; Extensions</string>
     <string name="stream_integration_plugins_desc">Custom scraper extensions and runtime plugins.</string>
-    <string name="stream_integration_telegram">Telegram</string>
-    <string name="stream_integration_telegram_desc">Direct streaming from your connected Telegram chats and channels.</string>
     <string name="stream_integration_iptv_vod">IPTV VOD</string>
     <string name="stream_integration_iptv_vod_desc">Video-on-demand movies and series from your IPTV playlists.</string>
     <string name="stream_integration_move_up">Move up</string>

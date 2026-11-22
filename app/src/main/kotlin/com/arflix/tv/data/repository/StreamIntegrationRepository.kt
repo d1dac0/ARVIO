@@ -10,7 +10,6 @@ import com.arflix.tv.data.model.StreamIntegrationConfig
 import com.arflix.tv.data.model.StreamIntegrationType
 import com.arflix.tv.data.model.StreamProviderItem
 import com.arflix.tv.data.model.StreamSearchMode
-import com.arflix.tv.data.telegram.TelegramRepository
 import com.arflix.tv.util.settingsDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -36,7 +35,6 @@ class StreamIntegrationRepository @Inject constructor(
     private val pluginManagerProvider: Provider<PluginManager>,
     private val homeServerRepositoryProvider: Provider<HomeServerRepository>,
     private val iptvRepositoryProvider: Provider<IptvRepository>,
-    private val telegramRepositoryProvider: Provider<TelegramRepository>? = null,
     private val invalidationBus: CloudSyncInvalidationBus
 ) {
 
@@ -263,23 +261,7 @@ class StreamIntegrationRepository @Inject constructor(
                     )
                 }
 
-                // 4. Telegram
-                val isTelegramAuth = runCatching { telegramRepositoryProvider?.get()?.isAuthenticated() == true }.getOrDefault(false)
-                if (isTelegramAuth) {
-                    add(
-                        StreamProviderItem(
-                            id = "telegram",
-                            rawProviderKeys = listOf("telegram_native", "telegram"),
-                            displayName = "Telegram",
-                            subtitle = "Direct streaming",
-                            type = StreamIntegrationType.TELEGRAM,
-                            isEnabled = true,
-                            targetConfigId = "telegram"
-                        )
-                    )
-                }
-
-                // 5. IPTV VOD
+                // 4. IPTV VOD
                 val vodPlaylists = iptvConfig.playlists.ifEmpty { iptvRepository.activePlaylists(iptvConfig) }
                     .filter { (it.importVod ?: true) || (it.importSeries ?: true) }
                 val vodPortals = iptvConfig.stalkerPortals.filter { (it.importVod ?: true) || (it.importSeries ?: true) }
@@ -349,7 +331,7 @@ class StreamIntegrationRepository @Inject constructor(
             orderedItems.mapIndexed { index, item ->
                 val enabledOverride = prefs[providerEnabledKey(profileId, item.id)]
                 val finalEnabled = enabledOverride ?: run {
-                    if (item.id.endsWith("_root") || item.id == "telegram") {
+                    if (item.id.endsWith("_root")) {
                         prefs[enabledKey(profileId, item.type)] ?: item.isEnabled
                     } else {
                         item.isEnabled
@@ -426,7 +408,7 @@ class StreamIntegrationRepository @Inject constructor(
 
         context.settingsDataStore.edit { prefs ->
             prefs[providerEnabledKey(profileId, id)] = newEnabled
-            if (id.endsWith("_root") || id == "telegram") {
+            if (id.endsWith("_root")) {
                 prefs[enabledKey(profileId, targetItem.type)] = newEnabled
             }
         }

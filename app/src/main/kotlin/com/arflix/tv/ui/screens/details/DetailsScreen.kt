@@ -1096,21 +1096,10 @@ fun DetailsScreen(
             )
         }
         // Stream Selector Modal
-        // With "only search Telegram when clicking", Telegram is offered as a row the user selects
-        // (see TelegramSearchRow). It is added here, for display only: autoplay, pre-warming and
-        // every other reader of uiState.streams never see it.
-        val telegramRowLabel = when (uiState.telegramSearchRow) {
-            TelegramSearchRow.HIDDEN -> null
-            TelegramSearchRow.IDLE -> stringResource(R.string.telegram_search_row_idle)
-                .takeIf { uiState.streams.none { it.addonId == TELEGRAM_SEARCH_ROW.addonId } }
-            TelegramSearchRow.SEARCHING -> stringResource(R.string.telegram_search_row_searching)
-            TelegramSearchRow.NONE -> stringResource(R.string.telegram_search_row_none)
-        }
-        // Addon messages (AIOStreams "[❌] Comet …") are display-only rows like the Telegram row.
-        val selectorStreams = remember(uiState.streams, uiState.addonNotices, telegramRowLabel) {
-            val withNotices = uiState.streams + uiState.addonNotices.mapIndexed(::addonNoticeRow)
-            if (telegramRowLabel == null) withNotices
-            else withNotices + TELEGRAM_SEARCH_ROW.copy(source = telegramRowLabel)
+        // Addon messages (AIOStreams "[❌] Comet …") are added as display-only rows: autoplay,
+        // pre-warming and every other reader of uiState.streams never see them.
+        val selectorStreams = remember(uiState.streams, uiState.addonNotices) {
+            uiState.streams + uiState.addonNotices.mapIndexed(::addonNoticeRow)
         }
         StreamSelector(
             isVisible = showStreamSelector,
@@ -1128,17 +1117,13 @@ fun DetailsScreen(
             preferredAudioLanguage = uiState.preferredAudioLanguage,
             mediaTitle = uiState.item?.title.orEmpty(),
             onFocusedStream = { stream ->
-                if (!isTelegramSearchRow(stream) && !isAddonNoticeRow(stream)) {
+                if (!isAddonNoticeRow(stream)) {
                     viewModel.prewarmStreamsAround(stream, uiState.streams)
                 }
             },
             onSelect = { stream ->
                 if (!viewModel.canStartPlayback(uiState.idleSyncRevision) ||
                     currentSelectionRevision.value != uiState.idleSyncRevision) return@StreamSelector
-                if (isTelegramSearchRow(stream)) {
-                    viewModel.searchTelegramNow()
-                    return@StreamSelector
-                }
                 if (isAddonNoticeRow(stream)) {
                     viewModel.showToast(
                         listOf(stream.source, stream.description).filterNot { it.isNullOrBlank() }.joinToString(": "),
@@ -5042,15 +5027,3 @@ private fun SimilarMediaCard(
     )
 }
 
-
-/** The "Search Telegram" row's stand-in source: listed under Telegram, never played. */
-private val TELEGRAM_SEARCH_ROW = StreamSource(
-    source = "",
-    addonName = "Telegram",
-    addonId = "telegram_native",
-    quality = "",
-    size = "",
-    url = "arvio-telegram-search://row"
-)
-
-private fun isTelegramSearchRow(stream: StreamSource): Boolean = stream.url == TELEGRAM_SEARCH_ROW.url

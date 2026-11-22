@@ -34,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -754,7 +753,6 @@ fun StreamIntegrationsScreen(
     homeServerCount: Int = 0,
     stremioAddonsCount: Int = 0,
     pluginsCount: Int = 0,
-    isTelegramConnected: Boolean = false,
     iptvPlaylistsCount: Int = 0,
     focusedIndex: Int = -1,
     focusedActionIndex: Int = 0,
@@ -769,7 +767,6 @@ fun StreamIntegrationsScreen(
             homeServerCount = homeServerCount,
             stremioAddonsCount = stremioAddonsCount,
             pluginsCount = pluginsCount,
-            isTelegramConnected = isTelegramConnected,
             iptvPlaylistsCount = iptvPlaylistsCount
         )
         StreamProviderItem(
@@ -817,12 +814,6 @@ private fun IntegrationIcon(type: StreamIntegrationType, tint: Color, size: andr
             tint = tint,
             modifier = Modifier.size(size)
         )
-        StreamIntegrationType.TELEGRAM -> Icon(
-            painter = painterResource(R.drawable.ic_telegram),
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(size)
-        )
         StreamIntegrationType.IPTV_VOD -> Icon(
             imageVector = Icons.Default.LiveTv,
             contentDescription = null,
@@ -838,7 +829,6 @@ private fun getStatusSummary(
     homeServerCount: Int,
     stremioAddonsCount: Int,
     pluginsCount: Int,
-    isTelegramConnected: Boolean,
     iptvPlaylistsCount: Int
 ): String {
     return when (type) {
@@ -857,13 +847,6 @@ private fun getStatusSummary(
                 stringResource(R.string.settings_pill_integrations, pluginsCount)
             } else {
                 stringResource(R.string.settings_disabled)
-            }
-        }
-        StreamIntegrationType.TELEGRAM -> {
-            if (isTelegramConnected) {
-                stringResource(R.string.connected)
-            } else {
-                stringResource(R.string.settings_disconnected)
             }
         }
         StreamIntegrationType.IPTV_VOD -> {

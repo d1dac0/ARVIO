@@ -19,7 +19,6 @@ import com.arflix.tv.util.AuthEmailValidator
 import com.arflix.tv.util.authDataStore
 import com.arflix.tv.util.profilesDataStore
 import com.arflix.tv.util.settingsDataStore
-import com.arflix.tv.util.telegramDataStore
 import com.arflix.tv.util.traktDataStore
 import com.arflix.tv.util.hash
 import com.arflix.tv.util.sanitizeEmail
@@ -378,7 +377,6 @@ class AuthRepository @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val traktRepositoryProvider: Provider<TraktRepository>,
     private val cloudSyncRepositoryProvider: Provider<CloudSyncRepository>,
-    private val telegramRepositoryProvider: Provider<com.arflix.tv.data.telegram.TelegramRepository>,
     private val launcherContinueWatchingProvider: Provider<LauncherContinueWatchingRepository>,
     private val traktOutboxProvider: Provider<TraktOutboxRepository>,
     private val pluginDataStoreProvider: Provider<com.arflix.tv.data.local.PluginDataStore>
@@ -922,16 +920,14 @@ class AuthRepository @Inject constructor(
         listOf(
             context.streamDataStore,
             context.traktDataStore,
-            context.profilesDataStore,
-            context.telegramDataStore
+            context.profilesDataStore
         ).forEach { store -> runCatching { store.edit { prefs -> prefs.clear() } } }
         runCatching { traktOutboxProvider.get().clearAll() }
         runCatching { pluginDataStoreProvider.get().clearAll() }
         runCatching { launcherContinueWatchingProvider.get().clearPublishedPrograms() }
-        // Deleting the Telegram files and the HTTP cache walks large directories: keep it off the
+        // Deleting the HTTP cache and account files walks large directories: keep it off the
         // main thread, where sign-out is started, and finish it before the app restarts.
         withContext(Dispatchers.IO) {
-            runCatching { telegramRepositoryProvider.get().disconnect() }
             runCatching { com.arflix.tv.network.OkHttpProvider.clearHttpCache() }
             runCatching { deleteAccountLocalFiles(context) }
         }

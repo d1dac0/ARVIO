@@ -10,12 +10,6 @@ import org.junit.runner.RunWith
 class HomeServerIntegrationDeviceTest {
     private val checks = HomeServerIntegrationChecks(ApplicationProvider.getApplicationContext<Context>())
 
-    @Test fun telegramCredentialsAndNativeLibraryAreAvailable() =
-        checks.telegramCredentialsAndNativeLibraryAreAvailable()
-
-    @Test fun telegramInitializesToSignInWithoutAnAccount() =
-        checks.telegramInitializesToSignInWithoutAnAccount()
-
     @Test fun allThreeServerLibrariesSurviveEncryptedStorageAndLoadOverHttp() =
         checks.allThreeServerLibrariesSurviveEncryptedStorageAndLoadOverHttp()
 }

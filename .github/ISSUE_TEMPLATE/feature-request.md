@@ -24,7 +24,7 @@ A clear and concise description of what the problem is.
 - [ ] **Player & Playback** (ExoPlayer, gestures, PIP, audio passthrough, speed controls, codecs)
 - [ ] **Subtitles & Audio** (AI subtitle tools, styling, sync adjustments, track selector)
 - [ ] **IPTV / Live TV** (EPG guide improvements, channel management, Xtream / M3U)
-- [ ] **Integrations & Sources** (Jellyfin, Emby, Plex, Telegram, Addons, Debrid)
+- [ ] **Integrations & Sources** (Jellyfin, Emby, Plex, Addons, Debrid)
 - [ ] **Catalogs & Metadata** (TMDB, Trakt lists, MDBList, filter & sorting options)
 - [ ] **Profiles & Cloud Sync** (Multi-user, Trakt scrobbling, profile PINs, cloud backup)
 - [ ] **UI / UX & Customization** (Homescreen rows, themes, remote D-Pad navigation)

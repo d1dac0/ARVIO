@@ -19,7 +19,7 @@
         android:name="android.hardware.microphone"
         android:required="false" />
 
-    <!-- ARVIO only uses Discord Rich Presence, not the SDK's voice stack. -->
+    <!-- ARVIO needs none of these; drop them if a library's manifest merges them in. -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"
         tools:node="remove" />
@@ -45,15 +45,6 @@
         android:required="false" />
 
     <queries>
-        <package android:name="com.discord" />
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="discord" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="https" android:host="discord.com" />
-        </intent>
         <!-- Search's mic button binds the device's speech recognizer. -->
         <intent>
             <action android:name="android.speech.RecognitionService" />
@@ -76,10 +67,6 @@
         android:localeConfig="@xml/locale_config"
         android:theme="@style/Theme.ArflixTV"
         android:usesCleartextTraffic="true">
-
-        <service
-            android:name="com.discord.socialsdk.ForegroundService"
-            tools:node="remove" />
 
         <profileable
             android:shell="true"
@@ -146,14 +133,6 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="stremio" />
-            </intent-filter>
-
-            <!-- Discord Auth Callback Deep-Link -->
-            <intent-filter android:label="Discord Auth Callback">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="arvio" android:host="discord" android:path="/auth" />
             </intent-filter>
         </activity>
 

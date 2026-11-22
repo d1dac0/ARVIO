@@ -17,7 +17,7 @@ code whenever that is the better fix. The app still calls upstream's deployed ba
 | Auto-release | push to `main` → builds signed `sideloadRelease`, publishes `v<versionName>` | This is the app's update channel |
 | Self-updater target | `GITHUB_OWNER`/`GITHUB_REPO` in `app/build.gradle.kts` → `d1dac0`/`ARVIO` | Otherwise the app follows upstream releases |
 | Version overrides | `-ParvioVersionCode=…`, `-ParvioVersionName=…` | `versionCode = 322 + run number`, `versionName = <base>-fork.<run>` |
-| Credential gate waiver | `-ParvioAllowMissingIntegrations=true` | Fork has no Telegram/Trakt credentials; those features stay off until repository secrets are set or, for Trakt, a Client ID is entered in Settings |
+| Credential gate waiver | `-ParvioAllowMissingIntegrations=true` | Fork has no Trakt credentials; Trakt stays off until repository secrets are set or a Client ID is entered in Settings |
 | TMDB fallback | `ENABLE_TMDB_EDGE_PROXY` in `app/build.gradle.kts` | Fork builds without `TMDB_API_KEY` use `auth.arvio.tv/tmdb-proxy`; otherwise Home's hero and rows are empty |
 
 Every push to `main` publishes a release, so a merge is a ship. Use `[skip ci]` in the commit
@@ -60,8 +60,8 @@ $env:GRADLE_USER_HOME = Join-Path (Get-Location) '.gradle\user-home'
   commits pushed to `main` so they close automatically.
 - `Deploy Web App` is disabled on the fork: it triggers on `strings.xml` changes and would fail
   without Netlify credentials. Leave it disabled.
-- The `Build Check` workflow's `signed-apk` job needs upstream's private Discord SDK deploy key and
-  cannot run here; the compile/test job still works.
+- The `Build Check` workflow's `signed-apk` job needs upstream's release secrets (Supabase, TMDB,
+  Trakt, keystore) and fails here when they are not set; the compile/test job still works.
 - `Actionlint` runs shellcheck over workflow run blocks with `fail-on-error: true`, so new
   workflows must be shellcheck-clean.
 
@@ -72,7 +72,7 @@ $env:GRADLE_USER_HOME = Join-Path (Get-Location) '.gradle\user-home'
 | Source picker ("Sources" list after choosing a title) | `app/src/main/kotlin/com/arflix/tv/ui/components/StreamSelector.kt` (~3.2k lines) |
 | TV text entry (native `EditText`, TV IME) | `app/src/main/kotlin/com/arflix/tv/ui/components/TextInputModal.kt` |
 | QR rendering | `ui/components/QrCodeImage.kt`, `util/QrCodeGenerator.kt` |
-| Activation-style flows to copy (Trakt, Telegram) | `ui/screens/settings/*`, `SettingsScreen.kt` |
+| Activation-style flows to copy (Trakt, SIMKL) | `ui/screens/settings/*`, `SettingsScreen.kt` |
 | Streams, addons, debrid heuristics | `data/repository/StreamRepository.kt`, `data/repository/AddonRuntime.kt` |
 | Self-updater | `updater/AppUpdateRepository.kt`, `updater/VersionUtils.kt`, `updater/AbiSelector.kt` |
 | Settings + DataStore persistence | `ui/screens/settings/SettingsViewModel.kt` |

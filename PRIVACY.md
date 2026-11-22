@@ -71,7 +71,6 @@ Data is also sent to services you deliberately use or connect:
 | Firebase Crashlytics and Google Analytics for Firebase | Optional crash diagnostics and separately opted-in usage statistics | [firebase.google.com/support/privacy](https://firebase.google.com/support/privacy) |
 | TMDB | Movie and TV metadata and images | [themoviedb.org/privacy-policy](https://www.themoviedb.org/privacy-policy) |
 | Trakt.tv | Optional watch history, progress, ratings, and watchlist sync | [trakt.tv/privacy](https://trakt.tv/privacy) |
-| Discord | Optional Rich Presence login and the title/playback status you choose to display | [discord.com/privacy](https://discord.com/privacy) |
 | Ko-fi | Optional ARVIO Web membership verification | [ko-fi.com/privacy](https://ko-fi.com/privacy) |
 | User-configured services | Addons, IPTV providers, Plex, Jellyfin, Emby, debrid services, and URLs you add | Governed by the provider you configure |
 
@@ -102,7 +101,7 @@ ARVIO also permits user-configured HTTP URLs for local servers and IPTV provider
 Depending on where you live, you may have the right to access, correct, export, restrict, object to, or delete your personal data, and to complain to your local data-protection authority. You can:
 
 - Disable diagnostics and usage reporting in app Settings
-- Disconnect Trakt, Discord, and other optional services in app Settings
+- Disconnect Trakt and other optional services in app Settings
 - Revoke ARVIO from the relevant third-party account
 - Delete your ARVIO Cloud account and synced data at [auth.arvio.tv/delete](https://auth.arvio.tv/delete)
 

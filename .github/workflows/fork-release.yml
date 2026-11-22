@@ -93,8 +93,6 @@ jobs:
         env:
           # Optional: supply real integration credentials as repository secrets and
           # they take priority over the placeholders in secrets.defaults.properties.
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
           TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
           TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
           # TMDB v3 API key (not the v4 read access token). When set, the app calls TMDB

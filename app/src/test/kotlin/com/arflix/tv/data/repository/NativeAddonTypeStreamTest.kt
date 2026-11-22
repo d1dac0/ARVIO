@@ -62,7 +62,7 @@ class NativeAddonTypeStreamTest {
             RuntimeEnvironment.getApplication(), api,
             mockk(relaxed = true), profileManager, mockk(relaxed = true), mockk(relaxed = true),
             mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
-            mockk(relaxed = true), integrations
+            integrations
         ).also { runBlocking { it.replaceSharedAddonsFromCloud(listOf(addon)) } }
     }
 

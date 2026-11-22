@@ -736,15 +736,8 @@ class PlayerViewModel @Inject constructor(
         "has_selected_url" to (!_uiState.value.selectedStreamUrl.isNullOrBlank()).toString()
     ).apply { putAll(extra) }
 
-    /** This player has told the Telegram search that playback is on (see loadMedia / onCleared). */
-    private var holdsTelegramQuiet = false
-
     override fun onCleared() {
         geminiLiveService.disconnect()
-        if (holdsTelegramQuiet) {
-            holdsTelegramQuiet = false
-            streamRepository.onPlaybackEnded()
-        }
         // Sync by hearing lives on its own threads (audio sampling, decoding, speech recognition):
         // without this every video played kept its hearing running on the old stream, and the
         // next one's model load and recognition competed with them (70s loads, no words in 90s).
@@ -777,13 +770,6 @@ class PlayerViewModel @Inject constructor(
         currentProvidedStreamUrl = providedStreamUrl
         currentProvidedIptvSourceId = providedIptvSourceId
         iptvBusyOnProvidedPath = false
-        // Playback is starting: Telegram searches still running for the source list the user
-        // just chose from are stopped, and none may toast over the player (they used to: "Telegram
-        // search timed out" appearing mid-episode). Held until this player is cleared.
-        if (!holdsTelegramQuiet) {
-            holdsTelegramQuiet = true
-            streamRepository.onPlaybackStarted()
-        }
         currentMediaType = mediaType
         currentMediaId = mediaId
         currentSeason = seasonNumber
@@ -1459,17 +1445,6 @@ class PlayerViewModel @Inject constructor(
                                         nativeType = mediaRepository.addonNativeType(mediaId)
                                     )
                                 } else emptyList()
-                            }
-                            StreamIntegrationType.TELEGRAM -> {
-                                streamRepository.resolveTelegramStreams(
-                                    mediaType = mediaType,
-                                    title = currentItemTitle,
-                                    year = null,
-                                    season = seasonNumber,
-                                    episode = episodeNumber,
-                                    imdbId = effectiveStreamId,
-                                    timeoutMs = 3_500L
-                                )
                             }
                             StreamIntegrationType.PLUGINS -> {
                                 if (streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.PLUGINS)) {

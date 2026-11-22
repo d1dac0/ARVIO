@@ -3,10 +3,6 @@ package com.arflix.tv.data.repository
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.edit
 import android.content.Context
-import android.content.ContextWrapper
-import com.arflix.tv.data.telegram.TelegramAuthState
-import com.arflix.tv.data.telegram.TelegramClient
-import com.arflix.tv.data.telegram.TelegramConfig
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.di.RepositoryAccessEntryPoint
 import com.arflix.tv.util.profilesDataStore
@@ -14,36 +10,12 @@ import com.google.gson.Gson
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import java.net.InetAddress
-import java.io.File
 import java.net.ServerSocket
 import java.util.UUID
 import java.util.concurrent.Executors
 
 internal class HomeServerIntegrationChecks(private val context: Context) {
-
-    fun telegramCredentialsAndNativeLibraryAreAvailable() {
-        check(TelegramConfig.isConfigured) { "Telegram credentials missing from APK" }
-        check(TelegramClient(context).isAvailable) { "Telegram native library missing from APK" }
-    }
-
-    fun telegramInitializesToSignInWithoutAnAccount() = runBlocking {
-        val files = File(context.cacheDir, "telegram-test-${UUID.randomUUID()}").apply { mkdirs() }
-        val isolatedContext = object : ContextWrapper(context) {
-            override fun getFilesDir() = files
-        }
-        val client = TelegramClient(isolatedContext)
-        try {
-            client.initialize()
-            val state = withTimeout(30_000) {
-                client.authState.first { it is TelegramAuthState.WaitPhone || it is TelegramAuthState.Error }
-            }
-            check(state == TelegramAuthState.WaitPhone) { "Telegram could not initialize: $state" }
-        } finally {
-            client.reset()
-        }
-    }
 
     fun allThreeServerLibrariesSurviveEncryptedStorageAndLoadOverHttp() = runBlocking {
         LibraryServer().use { server ->

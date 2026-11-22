@@ -144,8 +144,7 @@ path guarded inside `StreamRepository`, `IptvRepository`, `HomeServerRepository`
 Stremio-protocol addons are queried in parallel through `AddonRuntime` and emitted as each one
 answers (`resolveMovieStreamsProgressive` and `resolveEpisodeStreamsProgressive` return a
 `Flow<ProgressiveStreamResult>`), behind a per-profile memory and DataStore cache keyed by the addon
-set. Telegram results join that flow when the integration is on. Home-server (Plex, Emby, Jellyfin)
-and IPTV VOD sources come from separate `resolve...HomeServerSources` and `resolve...VodSources`
+set. Home-server (Plex, Emby, Jellyfin) and IPTV VOD sources come from separate `resolve...HomeServerSources` and `resolve...VodSources`
 calls that `DetailsViewModel` and `PlayerViewModel` merge in. `resolveStreamForPlayback` then turns
 the chosen source into a playable URL (redirect chains, torrents through TorrServer, YouTube).
 
@@ -179,9 +178,6 @@ re-vendor it on a Media3 bump.
 of `IptvRepository` (M3U, Xtream, Stalker). The `TvScreen` composable in `ui/screens/tv/TvScreen.kt`
 has no call sites; check for callers before editing anything in that file. Kids profiles are
 redirected away from this route in `AppNavigation`.
-
-**Telegram.** TDLib through JNI (`app/src/main/tdlib-java`, `libtdjni.so`), with a local Ktor server
-(`data/telegram/TelegramStreamingProxy.kt`) that feeds Telegram files to the player.
 
 **Pinned dependencies.** Several versions are pinned to avoid specific crashes: R8 in
 `settings.gradle.kts`; Hilt, the Compose BOM, Ktor and `kotlin-metadata-jvm` in the Gradle build

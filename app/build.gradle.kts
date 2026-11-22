@@ -54,8 +54,6 @@ val downloadSherpaOnnx = tasks.register("downloadSherpaOnnx") {
     }
 }
 
-val discordSdkAar = layout.projectDirectory.file("libs/discord_partner_sdk.aar").asFile
-val hasDiscordSdk = discordSdkAar.isFile
 val includeX86Abis = providers.gradleProperty("includeX86Abis")
     .orNull
     ?.toBooleanStrictOrNull() == true
@@ -63,12 +61,6 @@ val forkReleaseAbiSplits = providers.gradleProperty("arvioForkReleaseAbiSplits")
     .orNull
     ?.toBooleanStrictOrNull() == true
 val armAbis = setOf("armeabi-v7a", "arm64-v8a")
-val telegramApiId = localSecretValue("TELEGRAM_API_ID")
-val telegramApiHash = localSecretValue("TELEGRAM_API_HASH")
-val telegramConfigured = (telegramApiId.toIntOrNull() ?: 0) > 0 &&
-    telegramApiHash.isNotBlank() &&
-    !telegramApiHash.startsWith("your-", ignoreCase = true) &&
-    !telegramApiHash.equals("disabled", ignoreCase = true)
 
 require(!forkReleaseAbiSplits || !includeX86Abis) {
     "The fork release ABI splits are for ARM devices. Use includeX86Abis for emulator builds."
@@ -97,9 +89,6 @@ android {
         buildConfigField("String", "GITHUB_REPO", "\"ARVIO\"")
         buildConfigField("Boolean", "FEATURE_PLUGINS_ENABLED", "false")
         buildConfigField("Boolean", "PARTNER_MANAGEMENT_ENABLED", (providers.gradleProperty("partnerManagement").orNull == "true").toString())
-        // Use the same resolution for generated values and release validation.
-        buildConfigField("String", "TELEGRAM_API_ID", "\"${escapeBuildConfigString(telegramApiId)}\"")
-        buildConfigField("String", "TELEGRAM_API_HASH", "\"${escapeBuildConfigString(telegramApiHash)}\"")
         // Public endpoint override for isolated preview testing; never a provider API key.
         buildConfigField("String", "SPORTS_METADATA_URL", "\"${escapeBuildConfigString(localSecretValue("SPORTS_METADATA_URL"))}\"")
         // Emergency Supabase cost guard. Keep high-volume public metadata and
@@ -121,12 +110,6 @@ android {
         buildConfigField("Boolean", "ENABLE_PERIODIC_CLOUD_PULL", "false")
         buildConfigField("Boolean", "ENABLE_NETLIFY_CLOUD_SYNC", "true")
         buildConfigField("Boolean", "ENABLE_SUPABASE_SYNC_MIRROR", "false")
-        buildConfigField("Boolean", "DISCORD_RICH_PRESENCE_AVAILABLE", hasDiscordSdk.toString())
-        buildConfigField(
-            "String",
-            "DISCORD_APPLICATION_ID",
-            "\"${escapeBuildConfigString(localSecretValue("DISCORD_CLIENT_ID"))}\""
-        )
         buildConfigField(
             "String",
             "NETLIFY_BACKEND_URL",
@@ -145,15 +128,6 @@ android {
             ndk {
                 abiFilters += armAbis
                 if (includeX86Abis) abiFilters += setOf("x86", "x86_64")
-            }
-        }
-
-        if (hasDiscordSdk) {
-            externalNativeBuild {
-                cmake {
-                    arguments += "-DANDROID_STL=c++_shared"
-                    arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
-                }
             }
         }
 
@@ -296,7 +270,6 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.srcDir("src/main/tdlib-java")
             // Vendored media3 1.9.0 Matroska extractor with Dolby Vision P7 sample hooks
             // (see dvmkv/package-info.java for the re-vendoring procedure on media3 bumps).
             java.srcDir("src/main/dvmkv-java")
@@ -310,7 +283,6 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
-        prefab = hasDiscordSdk
     }
 
     packaging {
@@ -329,16 +301,6 @@ android {
             excludes += setOf("lib/*/libsherpa-onnx-c-api.so", "lib/*/libsherpa-onnx-cxx-api.so")
             if (forkReleaseAbiSplits) {
                 excludes += setOf("lib/x86/**", "lib/x86_64/**")
-                if (!telegramConfigured) excludes += "lib/*/libtdjni.so"
-            }
-        }
-    }
-
-    if (hasDiscordSdk) {
-        externalNativeBuild {
-            cmake {
-                path = file("src/main/cpp/CMakeLists.txt")
-                version = "3.22.1"
             }
         }
     }
@@ -385,12 +347,6 @@ ksp {
     }
 
     dependencies {
-    // Discord Partner SDK is licensed separately and intentionally not committed.
-    if (hasDiscordSdk) {
-        implementation(files(discordSdkAar))
-    } else {
-        logger.warn("Discord Partner SDK AAR not found. Discord Rich Presence will be unavailable.")
-    }
 
     // Gson explicit pin to keep `JsonParser`/AST extension API stable with current sources.
     implementation("com.google.code.gson:gson:2.10.1")
@@ -500,15 +456,10 @@ ksp {
     // Supabase (optional - for cloud sync)
     implementation("io.github.jan-tennert.supabase:postgrest-kt:2.0.4")
     implementation("io.github.jan-tennert.supabase:gotrue-kt:2.0.4")
-    // Ktor 2.3.12+ removes an internal-coroutines ABI dependency that crashes
-    // the Telegram proxy with the coroutines version required by Firebase Sessions.
+    // Ktor 2.3.12+ removes an internal-coroutines ABI dependency that conflicts
+    // with the coroutines version required by Firebase Sessions.
     implementation(platform("io.ktor:ktor-bom:2.3.13"))
     implementation("io.ktor:ktor-client-android:2.3.13")
-    // Ktor server modules used by Telegram streaming proxy
-    implementation("io.ktor:ktor-server-core:2.3.13")
-    implementation("io.ktor:ktor-server-cio:2.3.13")
-    implementation("io.ktor:ktor-server-call-logging:2.3.13")
-    implementation("io.ktor:ktor-server-host-common:2.3.13")
 
     // DataStore for preferences
     implementation("androidx.datastore:datastore-preferences:1.0.0")
@@ -601,8 +552,6 @@ secrets {
     ignoreList.add("APP_ANON_KEY")
     ignoreList.add("SIMKL_CLIENT_SECRET")
     ignoreList.add("SENTRY_DSN")
-    ignoreList.add("TELEGRAM_API_ID")
-    ignoreList.add("TELEGRAM_API_HASH")
 }
 
 fun localSecretValue(name: String): String {
@@ -631,7 +580,7 @@ fun escapeBuildConfigString(value: String): String =
 val validateReleaseCloudSecrets = tasks.register("validateReleaseCloudSecrets") {
     doLast {
         // Fork builds may opt out of the integration-credential gate: the APK then
-        // ships with the placeholder Telegram/Trakt values from
+        // ships with the placeholder Trakt values from
         // secrets.defaults.properties and those integrations stay disabled.
         val allowMissingIntegrations = providers.gradleProperty("arvioAllowMissingIntegrations")
             .orNull
@@ -649,10 +598,6 @@ val validateReleaseCloudSecrets = tasks.register("validateReleaseCloudSecrets") 
         val supabaseUrl = localSecretValue("SUPABASE_URL")
         val traktClientId = localSecretValue("TRAKT_CLIENT_ID")
         val traktClientSecret = localSecretValue("TRAKT_CLIENT_SECRET")
-        requireIntegration(telegramConfigured && telegramApiHash.matches(Regex("[a-fA-F0-9]{32}"))) {
-            "Release builds require valid TELEGRAM_API_ID and TELEGRAM_API_HASH values. " +
-                "Refusing to ship an official build with Telegram disabled."
-        }
         val supabaseHost = supabaseUrl.substringAfter("://", missingDelimiterValue = "").substringBefore('/')
         val hasValidSupabaseUrl =
             (supabaseUrl.startsWith("https://") || supabaseUrl.startsWith("http://")) &&

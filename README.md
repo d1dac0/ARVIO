@@ -24,7 +24,6 @@
 <p align="center">
   <a href="https://arvio.tv/">Website</a>
   &middot; <a href="https://arvio.tv/guides/">Setup guides</a>
-  &middot; <a href="https://discord.gg/UavuEYMfQ4">Discord</a>
 </p>
 
 <p align="center">
@@ -64,7 +63,7 @@ For GitHub updates through Obtainium, add `https://github.com/ProdigyV21/ARVIO` 
 - **Plex, Emby and Jellyfin.** Connect your own servers or libraries shared with you, browse their contents and use available server media as playback sources.
 - **Live TV and catch-up.** Connect supported M3U, Xtream Codes or Stalker sources. Browse categories, favorites, recently watched channels and the programme guide, with a mini-player and fullscreen playback. Guide coverage, catch-up and seeking depend on your provider.
 - **Sports inside Live TV.** Browse live and upcoming events, then choose a matched channel or compatible sports add-on source. Use IPTV, sports add-ons, or both. Coverage and artwork depend on the schedules and sources available to your setup.
-- **Add-ons, debrid and Telegram.** Browse and install compatible community add-ons, configure supported debrid sources, or search video files in your connected Telegram channels and groups. These services need their own configuration and access.
+- **Add-ons and debrid.** Browse and install compatible community add-ons and configure supported debrid sources. These services need their own configuration and access.
 - **Trakt and SIMKL tracking.** Connect accounts per profile for supported watchlists, history, scrobbling and Continue Watching/next episodes. SIMKL uses AUTH V2 for new connections; custom-list availability depends on your SIMKL account's capabilities.
 - **Playback and subtitles.** Media3 playback on Android, episode-aware controls, source selection, audio/subtitle tracks, automatic frame-rate matching on supported hardware, subtitle language preferences and optional AI subtitle tools.
 - **Profiles and optional cloud sync.** Separate viewing state, avatars and PINs, plus age-filtered kids profiles on Android. ARVIO Cloud can sync supported settings, catalogs, playlists and watch state across your devices.
@@ -74,11 +73,11 @@ Browser playback depends on the source, CORS, codecs and browser. It is not a gu
 ## Get Started
 
 1. **Install and create a profile.** Use local profiles, or connect ARVIO Cloud for supported cross-device sync.
-2. **Connect your sources in Settings.** Add your home server, a compatible add-on, your live TV playlist or Telegram account. Browsing a catalog alone does not create a playable source.
+2. **Connect your sources in Settings.** Add your home server, a compatible add-on or your live TV playlist. Browsing a catalog alone does not create a playable source.
 3. **Connect your trackers.** Add Trakt or SIMKL for viewing progress and supported lists; connect MDBList if you use its lists.
 4. **Make Home yours.** Choose your layout, organize catalogs and import collections. Open a title and select an available source to watch.
 
-[All setup guides](https://arvio.tv/guides/) &middot; [Plex / Emby / Jellyfin](https://arvio.tv/plex-emby-jellyfin/) &middot; [Ask the community](https://discord.gg/UavuEYMfQ4)
+[All setup guides](https://arvio.tv/guides/) &middot; [Plex / Emby / Jellyfin](https://arvio.tv/plex-emby-jellyfin/)
 
 ## Make It Yours
 
@@ -122,7 +121,7 @@ Self-hosted profiles and settings are local to each browser; this mode does **no
 
 ## Help and Support
 
-- **Setup help and discussion:** [ARVIO Discord](https://discord.gg/UavuEYMfQ4) and [guides](https://arvio.tv/guides/).
+- **Setup help:** [guides](https://arvio.tv/guides/).
 - **Bug reports:** [open a GitHub issue](https://github.com/ProdigyV21/ARVIO/issues/new/choose) with the app version, device/OS, install source, steps to reproduce and expected behavior. Include a crash reference or redacted logs when available.
 - **Feature requests:** describe the workflow you want to improve and check [existing issues](https://github.com/ProdigyV21/ARVIO/issues) first.
 
@@ -156,7 +155,7 @@ Copy-Item secrets.defaults.properties secrets.properties
 
 The debug APK is written to `app/build/outputs/apk/sideload/debug/`. For an x86/x86_64 emulator, add `-PincludeX86Abis=true`; APK builds otherwise include ARMv7 and ARM64.
 
-Use your own TMDB, Trakt, SIMKL, Telegram and other application credentials for the integrations you test. Placeholder values do not provide working authentication. Cloud/auth features also require appropriate backend configuration. Keep `secrets.properties`, keystores and signing credentials out of Git.
+Use your own TMDB, Trakt, SIMKL and other application credentials for the integrations you test. Placeholder values do not provide working authentication. Cloud/auth features also require appropriate backend configuration. Keep `secrets.properties`, keystores and signing credentials out of Git.
 
 **Test on an emulator or dedicated device.** Ordinary debug builds use the production package ID but a different signing key, so they cannot update an official signed installation. Do not uninstall a user's app just to install a debug build.
 
@@ -187,8 +186,6 @@ adb -s <device-ip>:5555 install -r app/build/outputs/apk/sideload/debug/app-side
 ```
 
 ### Optional Integrations
-
-Discord Rich Presence requires Discord's separately licensed Android Partner SDK. Place the approved AAR at `app/libs/discord_partner_sdk.aar` and configure `DISCORD_CLIENT_ID`. Builds without it remain valid and show Discord as unavailable. Do not commit or redistribute the SDK without the required permission.
 
 The speech-recognition AAR is downloaded and checksum-verified by Gradle. Integration availability can differ by distribution: for example, Sync by Hearing is currently a sideload feature.
 

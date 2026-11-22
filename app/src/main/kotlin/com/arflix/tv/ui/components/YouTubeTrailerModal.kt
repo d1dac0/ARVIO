@@ -34,7 +34,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
@@ -76,7 +75,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
@@ -748,69 +746,6 @@ private fun TrailerCloseButton(onClose: () -> Unit) {
             contentDescription = stringResource(R.string.close),
             tint = Color.White,
             modifier = Modifier.size(22.dp)
-        )
-    }
-}
-
-/**
- * Focusable action beside the player, for its settings or the external app.
- */
-@Composable
-private fun YouTubeStripButton(
-    label: String = "YouTube",
-    isFocused: Boolean,
-    onFocusChanged: (Boolean) -> Unit,
-    focusRequester: FocusRequester,
-    onActivate: () -> Unit,
-    onUp: () -> Unit,
-    onBack: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                if (isFocused) ArvioSkin.colors.focusOutline else Color.White.copy(alpha = 0.12f)
-            )
-            .focusRequester(focusRequester)
-            .onFocusChanged { onFocusChanged(it.isFocused) }
-            .focusable()
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when (event.key) {
-                        Key.DirectionUp -> {
-                            onUp()
-                            true
-                        }
-                        Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                            onActivate()
-                            true
-                        }
-                        Key.Back, Key.Escape -> {
-                            onBack()
-                            true
-                        }
-                        else -> false
-                    }
-                } else false
-            }
-            .clickable { onActivate() }
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-            contentDescription = null,
-            tint = if (isFocused) Color.Black else Color.White,
-            modifier = Modifier.size(14.dp)
-        )
-        Text(
-            text = label,
-            style = ArvioSkin.typography.caption.copy(
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 12.sp,
-                color = if (isFocused) Color.Black else Color.White
-            )
         )
     }
 }

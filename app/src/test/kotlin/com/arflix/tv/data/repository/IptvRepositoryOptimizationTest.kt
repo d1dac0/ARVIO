@@ -256,6 +256,10 @@ class IptvRepositoryOptimizationTest {
 
         val builder = io.mockk.mockk<okhttp3.OkHttpClient.Builder>(relaxed = true)
         io.mockk.every { okHttpClient.newBuilder() } returns builder
+        // The IPTV client chain starts by dropping the shared OkHttp cache; without this
+        // stub the relaxed builder returns a fresh chained mock and the stubbed client
+        // (with its mocked 304) is never reached.
+        io.mockk.every { builder.cache(any()) } returns builder
         io.mockk.every { builder.connectTimeout(any(), any()) } returns builder
         io.mockk.every { builder.readTimeout(any(), any()) } returns builder
         io.mockk.every { builder.writeTimeout(any(), any()) } returns builder

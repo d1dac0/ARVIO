@@ -120,8 +120,6 @@ data class DetailsUiState(
     val loadingPluginNames: Set<String> = emptySet(),
     val completedAddons: Int = 0,
     val totalAddons: Int = 0,
-    /** The "Search Telegram" source row (Telegram setting "only search when clicking"). */
-    val telegramSearchRow: TelegramSearchRow = TelegramSearchRow.HIDDEN,
     val hasStreamingAddons: Boolean = true,
     val addonOrderedIds: List<String> = emptyList(),
     val isInWatchlist: Boolean = false,
@@ -241,18 +239,7 @@ enum class ToastType {
 }
 
 private fun isSupplementalStream(stream: StreamSource): Boolean =
-    IptvVodSourceIds.isIptvVodAddonId(stream.addonId) || stream.addonId == HomeServerRepository.ADDON_ID ||
-        // Found by the user's own "Search Telegram" — outside the addon lookup, like the above.
-        stream.addonId == TELEGRAM_ADDON_ID
-
-private const val TELEGRAM_ADDON_ID = "telegram_native"
-
-/**
- * The "Search Telegram" source row. With the Telegram setting "Only search Telegram when clicking
- * the Telegram source" (on by default) source lists no longer search Telegram by themselves; the
- * row starts the search, and what it finds is listed under it as it arrives.
- */
-enum class TelegramSearchRow { HIDDEN, IDLE, SEARCHING, NONE }
+    IptvVodSourceIds.isIptvVodAddonId(stream.addonId) || stream.addonId == HomeServerRepository.ADDON_ID
 
 private fun Addon.isVodStreamingAddon(): Boolean =
     isEnabled &&
@@ -355,7 +342,6 @@ class DetailsViewModel @Inject constructor(
     private var loadStreamsJob: kotlinx.coroutines.Job? = null
     private var personJob: Job? = null
     private var pluginScraperJob: Job? = null
-    private var telegramSearchJob: Job? = null
     private var loadStreamsRequestId: Long = 0L
     private var focusedStreamPrewarmJob: kotlinx.coroutines.Job? = null
     private var streamListPrewarmJob: kotlinx.coroutines.Job? = null
@@ -364,7 +350,7 @@ class DetailsViewModel @Inject constructor(
     // lock. The progressive merge sorts on Dispatchers.Default and publishes when it
     // resumes, so the check-then-publish between merge and write is only atomic while
     // the resumption lands on the same thread the supplemental publishers (IPTV VOD,
-    // home servers, plugins, Telegram) run on; on an unconfined scope it resumes on the
+    // home servers, plugins) run on; on an unconfined scope it resumes on the
     // worker instead, and a stale merge would overwrite the rows such a publisher wrote
     // in between. Holding one lock from reading the current list to publishing the
     // merged one keeps the last publisher's rows on top regardless of dispatcher.
@@ -2159,60 +2145,6 @@ class DetailsViewModel @Inject constructor(
         }
     }
 
-    private data class TelegramSearchRequest(
-        val requestId: Long,
-        val mediaType: MediaType,
-        val title: String,
-        val year: Int?,
-        val season: Int?,
-        val episode: Int?,
-        val imdbId: String
-    )
-
-    /** What the "Search Telegram" row searches for — the current source list's title/episode. */
-    private var telegramSearchRequest: TelegramSearchRequest? = null
-
-    /** The user selected the "Search Telegram" row: search now, listing results as they arrive. */
-    fun searchTelegramNow() {
-        val request = telegramSearchRequest ?: return
-        if (_uiState.value.telegramSearchRow == TelegramSearchRow.SEARCHING) return
-        _uiState.value = _uiState.value.copy(telegramSearchRow = TelegramSearchRow.SEARCHING)
-        telegramSearchJob = viewModelScope.launch {
-            fun isCurrent() = request.requestId == loadStreamsRequestId
-            suspend fun merge(found: List<StreamSource>) {
-                if (!isCurrent() || found.isEmpty()) return
-                streamListPublishMutex.withLock {
-                    _uiState.value = _uiState.value.copy(
-                        streams = sortPlayableStreamsFirst(
-                            (_uiState.value.streams + found).distinctBy(::providerScopedStreamIdentity)
-                        ),
-                        isLoadingStreams = false
-                    )
-                }
-            }
-            val found = try {
-                streamRepository.searchTelegramNow(
-                    mediaType = request.mediaType,
-                    title = request.title,
-                    year = request.year,
-                    season = request.season,
-                    episode = request.episode,
-                    imdbId = request.imdbId,
-                    onFound = { merge(it) }
-                )
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.w(TAG, "[Telegram] search failed: ${e.message}")
-                emptyList()
-            }
-            if (!isCurrent()) return@launch
-            merge(found)
-            _uiState.value = _uiState.value.copy(
-                telegramSearchRow = if (found.isEmpty()) TelegramSearchRow.NONE else TelegramSearchRow.HIDDEN
-            )
-        }
-    }
-
     /**
      * Merges [streams] with the supplemental rows already published. Must be called
      * while holding [streamListPublishMutex], so the caller can publish the returned
@@ -2234,14 +2166,12 @@ class DetailsViewModel @Inject constructor(
         loadStreamsRequestId++
         listOf(
             loadStreamsJob, homeServerAppendJob, vodAppendJob, pluginScraperJob,
-            focusedStreamPrewarmJob, streamListPrewarmJob, telegramSearchJob
+            focusedStreamPrewarmJob, streamListPrewarmJob
         ).forEach { it?.cancel() }
         loadStreamsJob = null
         homeServerAppendJob = null
         vodAppendJob = null
         pluginScraperJob = null
-        telegramSearchJob = null
-        telegramSearchRequest = null
     }
 
     fun loadStreams(imdbId: String?, identity: EpisodeIdentity? = null) {
@@ -2260,8 +2190,7 @@ class DetailsViewModel @Inject constructor(
             recentSource = null,
             subtitles = emptyList(),
             streamSearchStartTime = System.currentTimeMillis(),
-            pluginScrapersLoading = false,
-            telegramSearchRow = TelegramSearchRow.HIDDEN
+            pluginScrapersLoading = false
         )
         val requestMediaType = currentMediaType
         val requestMediaId = currentMediaId
@@ -2337,24 +2266,9 @@ class DetailsViewModel @Inject constructor(
                 val originalLanguage = item?.originalLanguage
                 val canonicalSeason = identity?.tmdbSeason
                 val canonicalEpisode = identity?.tmdbEpisode
-                // A YouTube collection video has exactly one source (YouTube); Telegram, home
-                // servers, IPTV VOD and plugins would only list unrelated title matches.
+                // A YouTube collection video has exactly one source (YouTube); home servers,
+                // IPTV VOD and plugins would only list unrelated title matches.
                 val isYouTubeVideo = YouTubeCollection.videoIdFromMetaId(effectiveStreamId) != null
-                if (!isYouTubeVideo && !effectiveStreamId.isNullOrBlank() && streamRepository.isTelegramSearchOnClick()) {
-                    // The keys the automatic search would use, so both share its cache.
-                    telegramSearchRequest = TelegramSearchRequest(
-                        requestId = requestId,
-                        mediaType = requestMediaType,
-                        title = item?.title.orEmpty(),
-                        year = item?.year?.toIntOrNull(),
-                        season = if (requestMediaType == MediaType.MOVIE) null else canonicalSeason ?: 1,
-                        episode = if (requestMediaType == MediaType.MOVIE) null else canonicalEpisode ?: 1,
-                        imdbId = effectiveStreamId
-                    )
-                    if (isCurrentRequest()) {
-                        _uiState.value = _uiState.value.copy(telegramSearchRow = TelegramSearchRow.IDLE)
-                    }
-                }
                 val animeQueryOverride = identity?.kitsuQuery
                 val homeServerEnabled = streamIntegrationRepository.isIntegrationEnabled(StreamIntegrationType.HOME_SERVER)
                 val hasHomeServerConnections = !isYouTubeVideo && homeServerEnabled && streamRepository.hasHomeServerConnections()

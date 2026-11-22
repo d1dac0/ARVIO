@@ -1595,7 +1595,7 @@ private fun sourceStatusText(
     val elapsed = if (elapsedSeconds > 0 && (isLoading || pluginScrapersLoading)) "${elapsedSeconds}s \u2022 " else ""
     return when {
         // Not gated on isLoading: once the first sources are listed isLoading is false, and a
-        // source still running (Telegram delivers in stages) read as "3/4 addons checked".
+        // source still running (a slow addon still answering) read as "3/4 addons checked".
         totalAddons > 0 && remaining > 0 -> stringResource(
             if (remaining == 1) {
                 R.string.stream_status_still_checking_one

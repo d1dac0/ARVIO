@@ -137,7 +137,7 @@ class SourceScrollingDeviceTest {
     }
 
     @Test fun focusStaysOnTheTopRowWhileResultsArrive() {
-        // The picker often opens with only a trailing action row ("Search Telegram"); results then
+        // The picker often opens with only a trailing action row (an addon notice); results then
         // arrive above it. Focus is a row position, so it stays at the top instead of riding the
         // action row down to the bottom of the list.
         val actionRow = source(999, extra = "action")

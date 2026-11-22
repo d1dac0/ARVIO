@@ -4,7 +4,7 @@ import com.arflix.tv.R
 import java.util.Locale
 
 /**
- * The 5 stream acquisition mechanisms in ARVIO.
+ * The 4 stream acquisition mechanisms in ARVIO.
  */
 enum class StreamIntegrationType(
     val id: String,
@@ -26,11 +26,6 @@ enum class StreamIntegrationType(
         titleRes = R.string.stream_integration_plugins,
         descRes = R.string.stream_integration_plugins_desc
     ),
-    TELEGRAM(
-        id = "telegram",
-        titleRes = R.string.stream_integration_telegram,
-        descRes = R.string.stream_integration_telegram_desc
-    ),
     IPTV_VOD(
         id = "iptv_vod",
         titleRes = R.string.stream_integration_iptv_vod,
@@ -42,7 +37,6 @@ enum class StreamIntegrationType(
             HOME_SERVER,
             STREMIO_ADDONS,
             PLUGINS,
-            TELEGRAM,
             IPTV_VOD
         )
 
@@ -56,7 +50,6 @@ enum class StreamIntegrationType(
             return when {
                 addonId == "home_server" -> HOME_SERVER
                 addonId.startsWith("plugin_") -> PLUGINS
-                addonId == "telegram_native" || addonId == "telegram" -> TELEGRAM
                 IptvVodSourceIds.isIptvVodAddonId(addonId) -> IPTV_VOD
                 else -> STREMIO_ADDONS
             }
@@ -74,12 +67,11 @@ data class StreamIntegrationConfig(
 )
 
 /**
- * An individual, configurable stream provider from any of the 5 integrations:
+ * An individual, configurable stream provider from any of the 4 integrations:
  * - Stremio Addon (e.g. Torrentio, Comet)
  * - Plugin Repository (e.g. SoraStream Repo)
  * - Home Server Connection (e.g. Living Room Jellyfin, Basement Plex)
  * - IPTV Playlist / Portal VOD
- * - Telegram
  */
 data class StreamProviderItem(
     val id: String,

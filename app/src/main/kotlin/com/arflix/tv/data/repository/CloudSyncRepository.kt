@@ -497,7 +497,7 @@ class CloudSyncRepository @Inject constructor(
         "accentColor", "oledBlackBackground", "skipProfileSelection", "customUserAgent",
         "dnsProvider", "subtitleAiEnabled", "subtitleAiAutoSelect", "subtitleAiFindBestMatch",
         "subtitlePreloadEnabled", "dolbyVisionCompatEnabled", "subtitleAiApiKey",
-        "subtitleAiModel", "subtitleRemoveHearingImpaired", "telegramSearchOnClickOnly",
+        "subtitleAiModel", "subtitleRemoveHearingImpaired",
         "subtitleHearingSyncV2", "liveAiSubsEnabled", "liveAiSubsAutoStart"
     )
     // Per-profile fields excluded from the generic merge (handled by their own logic / not values).
@@ -796,10 +796,6 @@ class CloudSyncRepository @Inject constructor(
         // Live TV AI subtitles (global, like the AI subtitle key they share).
         root.put("liveAiSubsEnabled", prefs[com.arflix.tv.ui.screens.tv.live.aisubs.LiveAiSubsPrefs.ENABLED] ?: false)
         root.put("liveAiSubsAutoStart", prefs[com.arflix.tv.ui.screens.tv.live.aisubs.LiveAiSubsPrefs.AUTO_START] ?: false)
-        root.put(
-            "telegramSearchOnClickOnly",
-            prefs[com.arflix.tv.data.telegram.TelegramRepository.KEY_SEARCH_ON_CLICK_ONLY] ?: true
-        )
         // Only an explicit choice: the default differs per device (off on low-memory devices), and
         // an untouched device pushing "on" would switch it on everywhere.
         prefs[subtitleHearingSyncKey]?.let { root.put("subtitleHearingSyncV2", it) }
@@ -1875,10 +1871,6 @@ class CloudSyncRepository @Inject constructor(
                 // has() guard: backups from app versions predating this field must not reset it.
                 if (root.has("dolbyVisionCompatEnabled")) {
                     prefs[dolbyVisionCompatKey] = root.optBoolean("dolbyVisionCompatEnabled", true)
-                }
-                if (root.has("telegramSearchOnClickOnly")) {
-                    prefs[com.arflix.tv.data.telegram.TelegramRepository.KEY_SEARCH_ON_CLICK_ONLY] =
-                        root.optBoolean("telegramSearchOnClickOnly", true)
                 }
                 if (root.has("subtitleHearingSyncV2")) {
                     prefs[subtitleHearingSyncKey] = root.optBoolean("subtitleHearingSyncV2", true)

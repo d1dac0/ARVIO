@@ -558,7 +558,6 @@ fun SettingsScreen(
     onNavigateToSearch: () -> Unit = {},
     onNavigateToTv: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
-    onNavigateToTelegramSettings: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {},
     onSubPageChanged: (Boolean) -> Unit = {}
@@ -781,7 +780,7 @@ fun SettingsScreen(
             "catalogs" -> uiState.catalogs.size + 2 // Add + Import + Built-in collections toggle + catalogs
             "stremio" -> stremioAddons.size + 2 // rows + refresh + community + add button
             "plugins" -> pluginsMaxIndex
-            "accounts" -> 21 // Includes About & Credits and device-local usage opt-in.
+            "accounts" -> 19 // Includes About & Credits and device-local usage opt-in.
             else -> 0
         }
     }
@@ -1761,31 +1760,21 @@ fun SettingsScreen(
                                                         !uiState.trackingWriteToSimkl
                                                     )
                                                 }
-                                                11 -> onNavigateToTelegramSettings()
-                                                12 -> {
-                                                    if (com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.isSupported) {
-                                                        if (com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.isLoggedInFlow.value) {
-                                                            com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.logout()
-                                                        } else {
-                                                            com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.login(context)
-                                                        }
-                                                    }
-                                                }
-                                                13 -> viewModel.forceCloudSyncNow()
-                                                14 -> viewModel.forceTraktSync()
-                                                15 -> {
+                                                11 -> viewModel.forceCloudSyncNow()
+                                                12 -> viewModel.forceTraktSync()
+                                                13 -> {
                                                     if (uiState.updateStatus is com.arflix.tv.updater.UpdateStatus.ReadyToInstall) {
                                                         viewModel.installAppUpdateOrRequestPermission()
                                                     } else {
                                                         viewModel.checkForAppUpdates(force = true, showNoUpdateFeedback = true)
                                                     }
                                                 }
-                                                16 -> viewModel.setQuietUpdateNotifications(!uiState.quietUpdateNotifications)
-                                                17 -> viewModel.setDiagnosticsSharingEnabled(!uiState.diagnosticsSharingEnabled)
-                                                18 -> openExternalUrl(context, PRIVACY_POLICY_URL)
-                                                19 -> openExternalUrl(context, ACCOUNT_DELETION_URL)
-                                                20 -> showCredits = true
-                                                21 -> viewModel.setUsageStatisticsEnabled(!uiState.usageStatisticsEnabled)
+                                                14 -> viewModel.setQuietUpdateNotifications(!uiState.quietUpdateNotifications)
+                                                15 -> viewModel.setDiagnosticsSharingEnabled(!uiState.diagnosticsSharingEnabled)
+                                                16 -> openExternalUrl(context, PRIVACY_POLICY_URL)
+                                                17 -> openExternalUrl(context, ACCOUNT_DELETION_URL)
+                                                18 -> showCredits = true
+                                                19 -> viewModel.setUsageStatisticsEnabled(!uiState.usageStatisticsEnabled)
                                             }
                                         }
                                         "plugins" -> {
@@ -1961,7 +1950,6 @@ fun SettingsScreen(
                     onAddCustomAddonClick = { showCustomAddonInput = true },
                     onBrowseCommunityAddonsClick = { showCommunityAddons = true },
                     openCustomUserAgentDialog = { showCustomUserAgentDialog = true },
-                    onNavigateToTelegram = onNavigateToTelegramSettings,
                     onDisconnectCloud = { showCloudDisconnectConfirm = true },
                     onDisconnectTrakt = { showTraktDisconnectConfirm = true }
                 )
@@ -2549,8 +2537,7 @@ fun SettingsScreen(
                                 onUsageStatisticsToggle = viewModel::setUsageStatisticsEnabled,
                                 onOpenPrivacy = { openExternalUrl(context, PRIVACY_POLICY_URL) },
                                 onOpenCredits = { showCredits = true },
-                                onOpenDataDeletion = { openExternalUrl(context, ACCOUNT_DELETION_URL) },
-                                onNavigateToTelegram = onNavigateToTelegramSettings
+                                onOpenDataDeletion = { openExternalUrl(context, ACCOUNT_DELETION_URL) }
                             )
                         }
                     }
@@ -3450,20 +3437,6 @@ fun SettingsScreen(
                 userCode = plexAuth.code,
                 onOpenUrl = { openExternalUrl(context, plexAuth.verificationUrl) },
                 onDismiss = { viewModel.cancelPlexHomeServerAuth() }
-            )
-        }
-
-        val isDiscordDialogVisible by com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.isAuthDialogVisibleFlow.collectAsStateWithLifecycle()
-        val discordAuthUrl by com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.authUrlFlow.collectAsStateWithLifecycle()
-        val isDiscordAuthLoading by com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.isAuthLoadingFlow.collectAsStateWithLifecycle()
-
-        if (isDiscordDialogVisible && !discordAuthUrl.isNullOrBlank()) {
-            DiscordActivationModal(
-                authUrl = discordAuthUrl!!,
-                isLoading = isDiscordAuthLoading,
-                onDismiss = {
-                    com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.closeAuthDialog()
-                }
             )
         }
 
@@ -4654,161 +4627,6 @@ private fun MdbListConnectDialog(
     )
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun DiscordActivationModal(
-    authUrl: String,
-    isLoading: Boolean,
-    onDismiss: () -> Unit
-) {
-    val accentColor = Color(0xFF5865F2) // Discord Blurple
-    val focusRequester = remember { FocusRequester() }
-    val qrContainerSize = 190.dp
-    val qrBitmapSizePx = 512
-
-    LaunchedEffect(Unit) {
-        runCatching { focusRequester.requestFocus() }
-    }
-
-    BackHandler {
-        onDismiss()
-    }
-
-    androidx.compose.ui.window.Dialog(
-        onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true,
-            usePlatformDefaultWidth = false
-        )
-    ) {
-        ModalScrim(onDismiss = onDismiss) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .focusRequester(focusRequester)
-                    .focusable()
-                    .onPreviewKeyEvent { event ->
-                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        when (event.key) {
-                            Key.Back, Key.Escape -> {
-                                onDismiss()
-                                true
-                            }
-                            else -> false
-                        }
-                    }
-                    .clickable(onClick = onDismiss),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    modifier = Modifier
-                        .width(580.dp)
-                        .background(BackgroundElevated, RoundedCornerShape(16.dp))
-                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
-                        .pointerInput(Unit) {
-                            detectTapGestures { /* consume tap events to prevent scrim dismissal */ }
-                        }
-                        .padding(28.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .background(accentColor.copy(alpha = 0.18f), RoundedCornerShape(12.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_discord),
-                                contentDescription = null,
-                                tint = accentColor,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Column {
-                            Text(
-                                text = stringResource(R.string.discord_connect_title),
-                                style = ArflixTypography.sectionTitle,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = stringResource(R.string.discord_rpc_subtitle),
-                                style = ArflixTypography.caption.copy(fontSize = 12.sp),
-                                color = TextSecondary
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = stringResource(R.string.discord_qr_explanation),
-                        style = ArflixTypography.body.copy(fontSize = 14.sp, lineHeight = 20.sp),
-                        color = TextSecondary
-                    )
-                    Spacer(modifier = Modifier.height(22.dp))
-
-                    // TV QR Code & Instructions
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(20.dp)
-                    ) {
-                        if (authUrl.isNotBlank()) {
-                            Box(
-                                modifier = Modifier
-                                    .size(qrContainerSize)
-                                    .background(Color.White, RoundedCornerShape(16.dp))
-                                    .padding(12.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                QrCodeImage(
-                                    data = authUrl,
-                                    sizePx = qrBitmapSizePx,
-                                    modifier = Modifier.fillMaxSize(),
-                                    foreground = android.graphics.Color.BLACK,
-                                    background = android.graphics.Color.WHITE
-                                )
-                            }
-                        }
-
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            if (isLoading) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    LoadingIndicator(size = 20.dp, color = accentColor)
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = stringResource(R.string.discord_connecting),
-                                        style = ArflixTypography.body,
-                                        color = TextPrimary
-                                    )
-                                }
-                            } else {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    LoadingIndicator(size = 18.dp, color = accentColor)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = stringResource(R.string.discord_waiting_approval),
-                                        style = ArflixTypography.caption,
-                                        color = TextSecondary.copy(alpha = 0.85f)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(14.dp))
-                                Text(
-                                    text = stringResource(R.string.discord_qr_instructions),
-                                    style = ArflixTypography.caption.copy(fontSize = 12.sp, lineHeight = 18.sp),
-                                    color = TextSecondary.copy(alpha = 0.7f)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -4843,7 +4661,6 @@ private fun MobileSettingsLayout(
     onAddCustomAddonClick: () -> Unit,
     onBrowseCommunityAddonsClick: () -> Unit,
     openCustomUserAgentDialog: () -> Unit = {},
-    onNavigateToTelegram: () -> Unit = {},
     onDisconnectCloud: () -> Unit = {},
     onDisconnectTrakt: () -> Unit = {}
 ) {
@@ -5000,8 +4817,7 @@ private fun MobileSettingsLayout(
                 openSubtitlePicker = openSubtitlePicker,
                 openSecondarySubtitlePicker = openSecondarySubtitlePicker,
                 openAudioLanguagePicker = openAudioLanguagePicker,
-                onSwitchProfile = onSwitchProfile,
-                onNavigateToTelegram = onNavigateToTelegram
+                onSwitchProfile = onSwitchProfile
             )
         }
 
@@ -5149,8 +4965,7 @@ private fun MobileSettingsMainPage(
     openSubtitlePicker: () -> Unit,
     openSecondarySubtitlePicker: () -> Unit = {},
     openAudioLanguagePicker: () -> Unit,
-    onSwitchProfile: () -> Unit,
-    onNavigateToTelegram: () -> Unit = {}
+    onSwitchProfile: () -> Unit
 ) {
     val context = LocalContext.current
     var showCredits by remember { mutableStateOf(false) }
@@ -5264,48 +5079,6 @@ private fun MobileSettingsMainPage(
                     },
                     isFocused = false,
                     onClick = { onNavigate("Tracking Integrations") }
-                )
-                MobileSettingsRow(
-                    iconRes = R.drawable.ic_telegram,
-                    title = "Telegram",
-                    subtitle = when {
-                        uiState.isTelegramConnected && !uiState.telegramUserName.isNullOrBlank() ->
-                            stringResource(R.string.settings_connected_as, uiState.telegramUserName.orEmpty())
-                        uiState.isTelegramConnected ->
-                            stringResource(R.string.connected)
-                        else -> ""
-                    },
-                    value = if (uiState.isTelegramConnected) stringResource(R.string.connected) else stringResource(R.string.connect),
-                    isExternalLink = false,
-                    isFocused = false,
-                    onClick = { onNavigate("Telegram") }
-                )
-                val isDiscordLoggedIn by com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.isLoggedInFlow.collectAsStateWithLifecycle(initialValue = false)
-                val discordUsername by com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.usernameFlow.collectAsStateWithLifecycle(initialValue = null)
-                val isDiscordSupported = com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.isSupported
-                val context = LocalContext.current
-                MobileSettingsRow(
-                    iconRes = R.drawable.ic_discord,
-                    title = "Discord RPC",
-                    subtitle = when {
-                        !isDiscordSupported -> stringResource(R.string.discord_not_included_in_build)
-                        isDiscordLoggedIn && !discordUsername.isNullOrBlank() -> stringResource(R.string.settings_connected_as, discordUsername.orEmpty())
-                        else -> ""
-                    },
-                    value = when {
-                        !isDiscordSupported -> stringResource(R.string.unavailable)
-                        isDiscordLoggedIn -> stringResource(R.string.settings_disconnect)
-                        else -> stringResource(R.string.connect)
-                    },
-                    enabled = isDiscordSupported,
-                    isFocused = false,
-                    onClick = {
-                        if (isDiscordLoggedIn) {
-                            com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.logout()
-                        } else {
-                            com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.login(context)
-                        }
-                    }
                 )
                 MobileSettingsRow(
                     icon = Icons.Default.SystemUpdate,
@@ -6055,12 +5828,6 @@ private fun MobileSettingsSubPage(
                     stremioAddons = stremioAddons,
                     onSwitchProfile = onSwitchProfile,
                     context = LocalContext.current
-                )
-            }
-            "Telegram" -> {
-                com.arflix.tv.ui.screens.settings.telegram.TelegramSettingsScreen(
-                    onBack = { onNavigate("MAIN") },
-                    showHeader = false
                 )
             }
         }
@@ -6944,17 +6711,15 @@ private fun tvSettingsFocusedHelp(section: String, focusedIndex: Int): TvSetting
             8 -> TvSettingsHelp(stringResource(R.string.settings_routing_update_trakt), stringResource(R.string.settings_routing_update_trakt_on))
             9 -> TvSettingsHelp(stringResource(R.string.settings_routing_update_simkl), stringResource(R.string.settings_routing_update_simkl_on))
             10 -> TvSettingsHelp(stringResource(R.string.settings_wetrakr_update), stringResource(R.string.settings_routing_update_wetrakr_on))
-            11 -> TvSettingsHelp("Telegram", stringResource(R.string.settings_telegram_desc))
-            12 -> TvSettingsHelp("Discord RPC", stringResource(R.string.discord_rpc_help_desc))
-            13 -> TvSettingsHelp(stringResource(R.string.force_cloud_sync), stringResource(R.string.settings_help_force_sync_desc))
-            14 -> TvSettingsHelp(stringResource(R.string.settings_force_trakt_sync), stringResource(R.string.settings_force_trakt_sync_desc))
-            15 -> TvSettingsHelp(stringResource(R.string.settings_help_app_updates), stringResource(R.string.settings_help_app_updates_desc))
-            16 -> TvSettingsHelp(stringResource(R.string.settings_quiet_update_notifications), stringResource(R.string.settings_quiet_update_notifications_desc))
-            17 -> TvSettingsHelp(stringResource(R.string.settings_diagnostics_sharing), stringResource(R.string.settings_diagnostics_sharing_desc))
-            18 -> TvSettingsHelp(stringResource(R.string.settings_privacy_policy), stringResource(R.string.settings_privacy_policy_desc))
-            19 -> TvSettingsHelp(stringResource(R.string.settings_account_data_deletion), stringResource(R.string.settings_account_data_deletion_desc))
-            20 -> TvSettingsHelp(stringResource(R.string.about_credits), stringResource(R.string.about_credits_description))
-            21 -> TvSettingsHelp(stringResource(R.string.settings_usage_statistics), stringResource(R.string.settings_usage_statistics_desc))
+            11 -> TvSettingsHelp(stringResource(R.string.force_cloud_sync), stringResource(R.string.settings_help_force_sync_desc))
+            12 -> TvSettingsHelp(stringResource(R.string.settings_force_trakt_sync), stringResource(R.string.settings_force_trakt_sync_desc))
+            13 -> TvSettingsHelp(stringResource(R.string.settings_help_app_updates), stringResource(R.string.settings_help_app_updates_desc))
+            14 -> TvSettingsHelp(stringResource(R.string.settings_quiet_update_notifications), stringResource(R.string.settings_quiet_update_notifications_desc))
+            15 -> TvSettingsHelp(stringResource(R.string.settings_diagnostics_sharing), stringResource(R.string.settings_diagnostics_sharing_desc))
+            16 -> TvSettingsHelp(stringResource(R.string.settings_privacy_policy), stringResource(R.string.settings_privacy_policy_desc))
+            17 -> TvSettingsHelp(stringResource(R.string.settings_account_data_deletion), stringResource(R.string.settings_account_data_deletion_desc))
+            18 -> TvSettingsHelp(stringResource(R.string.about_credits), stringResource(R.string.about_credits_description))
+            19 -> TvSettingsHelp(stringResource(R.string.settings_usage_statistics), stringResource(R.string.settings_usage_statistics_desc))
             else -> TvSettingsHelp(stringResource(R.string.settings_help_account_data), stringResource(R.string.settings_help_account_data_desc))
         }
         else -> TvSettingsHelp(stringResource(R.string.settings_help_setting), stringResource(R.string.settings_help_setting_desc))
@@ -10507,8 +10272,7 @@ private fun AccountsSettings(
     onUsageStatisticsToggle: (Boolean) -> Unit,
     onOpenPrivacy: () -> Unit,
     onOpenDataDeletion: () -> Unit,
-    onOpenCredits: () -> Unit,
-    onNavigateToTelegram: () -> Unit = {}
+    onOpenCredits: () -> Unit
 ) {
     Column {
         if (LocalDeviceType.current.isTouchDevice()) {
@@ -10694,51 +10458,6 @@ private fun AccountsSettings(
             modifier = Modifier.settingsFocusSlot(10)
         )
         Spacer(modifier = Modifier.height(16.dp))
-        // Telegram
-        SettingsActionRow(
-            title = "Telegram",
-            description = when {
-                trackingUiState.isTelegramConnected && !trackingUiState.telegramUserName.isNullOrBlank() ->
-                    stringResource(R.string.settings_connected_as, trackingUiState.telegramUserName.orEmpty())
-                trackingUiState.isTelegramConnected ->
-                    stringResource(R.string.connected)
-                else -> stringResource(R.string.settings_telegram_desc)
-            },
-            actionLabel = if (trackingUiState.isTelegramConnected) stringResource(R.string.connected) else stringResource(R.string.settings_badge_open),
-            isFocused = focusedIndex == 11,
-            onClick = onNavigateToTelegram,
-            modifier = Modifier.settingsFocusSlot(11)
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Discord RPC
-        val context = LocalContext.current
-        val isDiscordLoggedIn by com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.isLoggedInFlow.collectAsStateWithLifecycle(initialValue = false)
-        val discordUsername by com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.usernameFlow.collectAsStateWithLifecycle(initialValue = null)
-        val isDiscordSupported = com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.isSupported
-        AccountRow(
-            name = "Discord Rich Presence",
-            description = when {
-                !isDiscordSupported -> stringResource(R.string.discord_not_included_in_build)
-                isDiscordLoggedIn && !discordUsername.isNullOrBlank() -> stringResource(R.string.settings_connected_as, discordUsername.orEmpty())
-                else -> ""
-            },
-            isConnected = isDiscordLoggedIn,
-            isWorking = false,
-            isEnabled = isDiscordSupported,
-            isFocused = focusedIndex == 12,
-            onConnect = {
-                com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.login(context)
-            },
-            onDisconnect = {
-                com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.logout()
-            },
-            modifier = Modifier.settingsFocusSlot(12)
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
         SettingsActionRow(
             title = stringResource(R.string.force_cloud_sync),
             description = if (isForceCloudSyncing) {
@@ -10751,9 +10470,9 @@ private fun AccountsSettings(
                 stringResource(R.string.settings_signin_to_force_sync)
             },
             actionLabel = if (isForceCloudSyncing) stringResource(R.string.settings_badge_syncing) else stringResource(R.string.settings_badge_sync),
-            isFocused = focusedIndex == 13,
+            isFocused = focusedIndex == 11,
             onClick = { if (!isForceCloudSyncing) onForceCloudSync() },
-            modifier = Modifier.settingsFocusSlot(13)
+            modifier = Modifier.settingsFocusSlot(11)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -10766,9 +10485,9 @@ private fun AccountsSettings(
                 stringResource(R.string.settings_force_trakt_sync_desc)
             },
             actionLabel = if (trackingUiState.isSyncing) stringResource(R.string.settings_badge_syncing) else stringResource(R.string.settings_badge_sync),
-            isFocused = focusedIndex == 14,
+            isFocused = focusedIndex == 12,
             onClick = { if (!trackingUiState.isSyncing) onForceTraktSync() },
-            modifier = Modifier.settingsFocusSlot(14)
+            modifier = Modifier.settingsFocusSlot(12)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -10790,11 +10509,11 @@ private fun AccountsSettings(
                 updateStatus is com.arflix.tv.updater.UpdateStatus.UpdateAvailable -> stringResource(R.string.settings_badge_update)
                 else -> stringResource(R.string.settings_badge_check)
             },
-            isFocused = focusedIndex == 15,
+            isFocused = focusedIndex == 13,
             onClick = {
                 if (updateStatus is com.arflix.tv.updater.UpdateStatus.ReadyToInstall) onInstallUpdate() else onCheckUpdates()
             },
-            modifier = Modifier.settingsFocusSlot(15)
+            modifier = Modifier.settingsFocusSlot(13)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -10803,9 +10522,9 @@ private fun AccountsSettings(
             title = stringResource(R.string.settings_quiet_update_notifications),
             subtitle = stringResource(R.string.settings_quiet_update_notifications_desc),
             isEnabled = quietUpdateNotifications,
-            isFocused = focusedIndex == 16,
+            isFocused = focusedIndex == 14,
             onToggle = onQuietUpdateNotificationsToggle,
-            modifier = Modifier.settingsFocusSlot(16)
+            modifier = Modifier.settingsFocusSlot(14)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -10814,9 +10533,9 @@ private fun AccountsSettings(
             title = stringResource(R.string.settings_diagnostics_sharing),
             subtitle = stringResource(R.string.settings_diagnostics_sharing_desc),
             isEnabled = diagnosticsSharingEnabled,
-            isFocused = focusedIndex == 17,
+            isFocused = focusedIndex == 15,
             onToggle = onDiagnosticsSharingToggle,
-            modifier = Modifier.settingsFocusSlot(17)
+            modifier = Modifier.settingsFocusSlot(15)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -10825,9 +10544,9 @@ private fun AccountsSettings(
             title = stringResource(R.string.settings_privacy_policy),
             description = stringResource(R.string.settings_privacy_policy_desc),
             actionLabel = stringResource(R.string.settings_badge_open),
-            isFocused = focusedIndex == 18,
+            isFocused = focusedIndex == 16,
             onClick = onOpenPrivacy,
-            modifier = Modifier.settingsFocusSlot(18)
+            modifier = Modifier.settingsFocusSlot(16)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -10836,27 +10555,27 @@ private fun AccountsSettings(
             title = stringResource(R.string.settings_account_data_deletion),
             description = stringResource(R.string.settings_account_data_deletion_desc),
             actionLabel = stringResource(R.string.settings_badge_open),
-            isFocused = focusedIndex == 19,
+            isFocused = focusedIndex == 17,
             onClick = onOpenDataDeletion,
-            modifier = Modifier.settingsFocusSlot(19)
+            modifier = Modifier.settingsFocusSlot(17)
         )
         Spacer(modifier = Modifier.height(16.dp))
         SettingsActionRow(
             title = stringResource(R.string.about_credits),
             description = stringResource(R.string.about_credits_description),
             actionLabel = stringResource(R.string.settings_badge_open),
-            isFocused = focusedIndex == 20,
+            isFocused = focusedIndex == 18,
             onClick = onOpenCredits,
-            modifier = Modifier.settingsFocusSlot(20)
+            modifier = Modifier.settingsFocusSlot(18)
         )
         Spacer(modifier = Modifier.height(16.dp))
         SettingsToggleRow(
             title = stringResource(R.string.settings_usage_statistics),
             subtitle = stringResource(R.string.settings_usage_statistics_desc),
             isEnabled = usageStatisticsEnabled,
-            isFocused = focusedIndex == 21,
+            isFocused = focusedIndex == 19,
             onToggle = onUsageStatisticsToggle,
-            modifier = Modifier.settingsFocusSlot(21)
+            modifier = Modifier.settingsFocusSlot(19)
         )
     }
 }

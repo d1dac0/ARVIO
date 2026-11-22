@@ -727,7 +727,6 @@
     <string name="settings_arvio_cloud">ARVIO Cloud</string>
     <string name="settings_cloud_account_desc">Cuenta opcional para sincronizar perfiles, addons, catálogos y ajustes IPTV</string>
     <string name="settings_trakt_desc">Sincroniza historial de visionado, progreso y tu lista</string>
-    <string name="settings_telegram_desc">Busca archivos de vídeo en tus canales y grupos</string>
     <string name="settings_badge_open">ABRIR</string>
     <string name="settings_sync_local_cloud_now">Sincronizando estado local y en la nube ahora</string>
     <string name="settings_upload_restore_now">Subir estado local y luego restaurar desde la nube ahora</string>
@@ -853,38 +852,7 @@
     <!-- Context menu hint -->
     <string name="context_press_back_cancel">Pulsa Atrás para cancelar</string>
 
-    <!-- Extracted from code: Telegram and Plugin screens -->
-    <string name="telegram_connecting">Conectando...</string>
-    <string name="telegram_preparing_qr">Preparando código QR...</string>
-    <string name="telegram_connect_title">Conectar Telegram</string>
-    <string name="telegram_connect_desc">Busca archivos de vídeo en tus canales y grupos siempre que abras una película o serie.</string>
-    <string name="telegram_disclaimer">Arvio no se hace responsable del contenido transmitido a través de esta función. Conecta solo tu propia cuenta y úsala de forma justa — respeta los derechos de autor y las leyes aplicables.</string>
-    <string name="telegram_scan_title">Escanear con Telegram</string>
-    <string name="telegram_scan_instructions">Abre Telegram en tu teléfono → Ajustes → Dispositivos → Vincular dispositivo de escritorio</string>
-    <string name="telegram_qr_code_desc">Código QR de Telegram</string>
-    <string name="telegram_qr_expires">El código QR expira en 30 segundos — se actualiza automáticamente</string>
-    <string name="telegram_phone_title">Introduce el número de teléfono</string>
-    <string name="telegram_phone_desc">Usa el mismo número registrado con tu cuenta de Telegram.</string>
-    <string name="telegram_phone_label">Número de teléfono</string>
-    <string name="telegram_phone_error">Debe empezar por + e incluir el código del país, ej. +34 para España, +1 para EE.UU.</string>
-    <string name="telegram_phone_format">Formato internacional: +[código de país][número]</string>
-    <string name="telegram_sending_code">Enviando código...</string>
-    <string name="telegram_send_code">ENVIAR CÓDIGO</string>
-    <string name="telegram_code_sent">Código enviado a tu app de Telegram</string>
-    <string name="telegram_code_title">Introduce el código</string>
-    <string name="telegram_code_desc">Revisa tu app de Telegram para obtener un código de %1$d dígitos.</string>
-    <string name="telegram_code_label">Código de verificación</string>
-    <string name="telegram_2fa_title">Verificación en dos pasos</string>
-    <string name="telegram_2fa_desc">Tu cuenta tiene una contraseña adicional.</string>
-    <string name="telegram_password_label">Contraseña</string>
-    <string name="telegram_signed_in_as">Sesión iniciada como %1$s</string>
-    <string name="telegram_disconnect_btn">DESCONECTAR</string>
-    <string name="telegram_video_cache">Caché de vídeo</string>
-    <string name="telegram_clear_cache_btn">LIMPIAR</string>
-    <string name="telegram_connection_failed">Conexión fallida</string>
-    <string name="telegram_try_again">INTENTAR DE NUEVO</string>
-    <string name="telegram_disconnect_confirm_title">¿Desconectar Telegram?</string>
-    <string name="telegram_disconnect_confirm_desc">Tendrás que volver a iniciar sesión para usar Telegram como fuente.</string>
+    <!-- Extracted from code: Plugin screens -->
     <string name="plugin_screen_title">Plugins (Pruebas)</string>
     <string name="plugin_screen_add_repo">Añadir repositorio</string>
     <string name="plugin_screen_installed_repos">Repositorios instalados</string>
@@ -901,13 +869,12 @@
 
     <!-- Extracted from code: Crash report screen -->
     <string name="crash_title">⚠️ ARVIO encontró un error</string>
-    <string name="crash_desc_tv">Escanea el código QR a continuación con la cámara de tu teléfono para copiar automáticamente el informe de fallos y abrir nuestro canal de errores en Discord.</string>
-    <string name="crash_desc_mobile">Pedimos disculpas por la interrupción. Puedes informar de este error directamente en nuestro canal de Discord para ayudarnos a solucionarlo.</string>
-    <string name="crash_qr_hint">Escanea para abrir arvio.tv — 1 toque para copiar el informe e ir a Discord.</string>
+    <string name="crash_hint_tv">Reinicia ARVIO para continuar. Los detalles de abajo identifican este error si lo informas.</string>
+    <string name="crash_hint_mobile">Perdona la interrupción. Copia el informe del error para incluirlo cuando informes del problema.</string>
+    <string name="crash_copy_report">Copiar informe del error</string>
+    <string name="crash_report_copied">Informe del error copiado</string>
     <string name="crash_details_title">Detalles de referencia del error</string>
     <string name="crash_details_body">ID: %1$s\nHora: %2$s\nVersión: %3$s\nError: %4$s</string>
-    <string name="crash_copied_toast">¡Detalles del error copiados! Abriendo Discord...</string>
-    <string name="crash_report_discord">Informar en Discord</string>
     <string name="crash_restart_app">Reiniciar ARVIO</string>
 
     <!-- Extracted from code: Profile, Login and Collections -->
@@ -1459,7 +1426,6 @@
     <string name="trakt_sync_refresh_failed">Se importó el historial, pero no se pudo actualizar completamente Continuar viendo. Se conservaron los elementos guardados; inténtalo más tarde.</string>
     <string name="sync_supabase_auth_failed">Error en la autorización de Supabase</string>
     <string name="launcher_continue_dash">%1$s - %2$s</string>
-    <string name="telegram_search_timed_out">La búsqueda en Telegram agotó el tiempo de espera</string>
 
     <!-- Extracted from code: Profile / TV / device-auth -->
     <string name="profile_avatar_import_failed">No se pudo importar la imagen del avatar</string>
@@ -1481,7 +1447,7 @@
     <string name="collection_not_found">Colección no encontrada</string>
 
 
-    <!-- Extracted from code: Auth / HomeServer / Telegram error messages -->
+    <!-- Extracted from code: Auth / HomeServer error messages -->
     <string name="auth_account_exists">La cuenta ya existe. Inicia sesión en su lugar.</string>
     <string name="auth_signin_retry">El inicio de sesión falló. Por favor, inténtalo de nuevo.</string>
     <string name="auth_invalid_credentials">Correo o contraseña no válidos.</string>
@@ -1497,9 +1463,6 @@
     <string name="homeserver_signin_failed_code">El inicio de sesión en el servidor falló (%1$d)</string>
     <string name="homeserver_no_playable_account">El inicio de sesión en el servidor no devolvió una cuenta reproducible</string>
     <string name="homeserver_missing_token">Falta el token de la cuenta</string>
-    <string name="telegram_search_failed">La búsqueda en Telegram falló</string>
-    <string name="telegram_too_many_searches">Demasiadas búsquedas — por favor, espera %1$ds antes de volver a intentarlo</string>
-    <string name="telegram_error_raw">Telegram: %1$s</string>
 
 
     <!-- Extracted from code: Auth validation / addons / updater / collection templates -->
@@ -1620,9 +1583,6 @@
     <string name="program_no_title">Sin Título</string>
     <string name="program_unknown">Programa desconocido</string>
     <string name="sync_in_progress">Sincronización ya en curso</string>
-    <string name="telegram_tdlib_failed">TDLib falló al iniciar: %1$s</string>
-    <string name="telegram_tdlib_unavailable">TDLib no está disponible en este dispositivo</string>
-    <string name="telegram_not_configured">La integración de Telegram no está configurada en esta compilación</string>
 
 
     <!-- Live TV category context menu -->
@@ -1639,15 +1599,6 @@
     <string name="live_group_pin_required_message">Establece un PIN en este perfil antes de bloquear los grupos de TV.</string>
     <string name="ratings">Puntuaciones de Episodios</string>
 
-    <!-- Discord Rich Presence -->
-    <string name="discord_connect_title">Conectar Discord</string>
-    <string name="discord_rpc_subtitle">Integración Rich Presence</string>
-    <string name="discord_qr_explanation">Escanea este código QR con la cámara de tu teléfono para autorizar Discord Rich Presence en tu perfil.</string>
-    <string name="discord_connecting">Conectando...</string>
-    <string name="discord_waiting_approval">Esperando aprobación...</string>
-    <string name="discord_qr_instructions">1. Escanea el código QR en tu teléfono\n2. Toca \'Autorizar\' en Discord\n3. Se conecta automáticamente</string>
-    <string name="discord_not_included_in_build">No incluido en esta compilación</string>
-    <string name="discord_rpc_help_desc">Muestra tu estado de visionado en tu perfil de Discord.</string>
     <string name="live_sources_empty">No se encontraron otras fuentes para este canal.</string>
     <string name="live_sources_failed">No se pudieron cargar las fuentes. Por favor, inténtalo de nuevo.</string>
 

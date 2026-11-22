@@ -590,7 +590,6 @@
     <string name="settings_disabled">Désactivé</string>
     <string name="settings_cloud_account_desc">Compte optionnel pour synchroniser les profils, addons, catalogues et réglages IPTV</string>
     <string name="settings_trakt_desc">Synchronise l’historique de visionnage, la progression et la liste</string>
-    <string name="settings_telegram_desc">Recherche des fichiers vidéo dans vos chaînes et groupes</string>
     <string name="settings_badge_open">OUVRIR</string>
     <string name="settings_sync_local_cloud_now">Synchronisation de l’état local et Cloud en cours</string>
     <string name="settings_upload_restore_now">Envoie l’état local, puis restaure depuis le Cloud maintenant</string>
@@ -648,38 +647,7 @@
     <!-- Context menu hint -->
     <string name="context_press_back_cancel">Appuyez sur Retour pour annuler</string>
 
-    <!-- Extracted from code: Telegram and Plugin screens -->
-    <string name="telegram_connecting">Connexion en cours…</string>
-    <string name="telegram_preparing_qr">Préparation du QR code…</string>
-    <string name="telegram_connect_title">Connecter Telegram</string>
-    <string name="telegram_connect_desc">Cherche dans vos chaînes et groupes les fichiers vidéo dès que vous ouvrez un film ou une série.</string>
-    <string name="telegram_disclaimer">ARVIO n’est pas responsable du contenu diffusé via cette fonctionnalité. Connectez uniquement votre propre compte et utilisez-la de façon loyale — respectez le droit d’auteur et les lois applicables.</string>
-    <string name="telegram_scan_title">Scannez avec Telegram</string>
-    <string name="telegram_scan_instructions">Ouvrez Telegram sur votre téléphone → Paramètres → Appareils → Lier un appareil de bureau</string>
-    <string name="telegram_qr_code_desc">QR code Telegram</string>
-    <string name="telegram_qr_expires">Le QR code expire dans 30 secondes — il se rafraîchit automatiquement</string>
-    <string name="telegram_phone_title">Saisissez votre numéro de téléphone</string>
-    <string name="telegram_phone_desc">Utilisez le même numéro que celui associé à votre compte Telegram.</string>
-    <string name="telegram_phone_label">Numéro de téléphone</string>
-    <string name="telegram_phone_error">Doit commencer par + et inclure l’indicatif du pays, par ex. +1 pour les US, +44 pour le UK</string>
-    <string name="telegram_phone_format">Format international : +[indicatif pays][numéro]</string>
-    <string name="telegram_sending_code">Envoi du code…</string>
-    <string name="telegram_send_code">ENVOYER LE CODE</string>
-    <string name="telegram_code_sent">Code envoyé sur votre application Telegram</string>
-    <string name="telegram_code_title">Saisissez le code</string>
-    <string name="telegram_code_desc">Consultez votre application Telegram pour un code à %1$d chiffres.</string>
-    <string name="telegram_code_label">Code de vérification</string>
-    <string name="telegram_2fa_title">Vérification en deux étapes</string>
-    <string name="telegram_2fa_desc">Votre compte possède un mot de passe supplémentaire.</string>
-    <string name="telegram_password_label">Mot de passe</string>
-    <string name="telegram_signed_in_as">Connecté en tant que %1$s</string>
-    <string name="telegram_disconnect_btn">DÉCONNECTER</string>
-    <string name="telegram_video_cache">Cache vidéo</string>
-    <string name="telegram_clear_cache_btn">VIDER</string>
-    <string name="telegram_connection_failed">Échec de la connexion</string>
-    <string name="telegram_try_again">RÉESSAYER</string>
-    <string name="telegram_disconnect_confirm_title">Déconnecter Telegram ?</string>
-    <string name="telegram_disconnect_confirm_desc">Vous devrez vous reconnecter pour utiliser Telegram comme source.</string>
+    <!-- Extracted from code: Plugin screens -->
     <string name="plugin_screen_title">Plugins (test)</string>
     <string name="plugin_screen_add_repo">Ajouter un dépôt</string>
     <string name="plugin_screen_installed_repos">Dépôts installés</string>
@@ -983,7 +951,6 @@
     <string name="trakt_not_authenticated">Non authentifié avec Trakt</string>
     <string name="sync_supabase_auth_failed">Échec de l’authentification Supabase</string>
     <string name="launcher_continue_dash">%1$s - %2$s</string>
-    <string name="telegram_search_timed_out">La recherche Telegram a expiré</string>
 
     <!-- Extracted from code: Profile / TV / device-auth -->
     <string name="profile_avatar_import_failed">Impossible d’importer l’image de l’avatar</string>
@@ -1010,7 +977,7 @@
     <string name="update_already_latest">Vous avez déjà la dernière version</string>
 
 
-    <!-- Extracted from code: Auth / HomeServer / Telegram error messages -->
+    <!-- Extracted from code: Auth / HomeServer error messages -->
     <string name="auth_account_exists">Un compte existe déjà. Connectez-vous plutôt.</string>
     <string name="auth_signin_retry">Échec de la connexion. Réessayez.</string>
     <string name="auth_invalid_credentials">E-mail ou mot de passe invalide.</string>
@@ -1026,9 +993,6 @@
     <string name="homeserver_signin_failed_code">Échec de la connexion au serveur (%1$d)</string>
     <string name="homeserver_no_playable_account">La connexion au serveur n’a pas renvoyé de compte exploitable</string>
     <string name="homeserver_missing_token">Jeton de compte manquant</string>
-    <string name="telegram_search_failed">Échec de la recherche Telegram</string>
-    <string name="telegram_too_many_searches">Trop de recherches — patientez %1$d s avant de réessayer</string>
-    <string name="telegram_error_raw">Telegram : %1$s</string>
 
 
     <!-- Extracted from code: Auth validation / addons / updater / collection templates -->
@@ -1129,8 +1093,6 @@
     <string name="program_no_title">Sans titre</string>
     <string name="program_unknown">Programme inconnu</string>
     <string name="sync_in_progress">Synchronisation déjà en cours</string>
-    <string name="telegram_tdlib_failed">Échec du démarrage de TDLib : %1$s</string>
-    <string name="telegram_tdlib_unavailable">TDLib non disponible sur cet appareil</string>
 
 
     <!-- Live TV category context menu -->

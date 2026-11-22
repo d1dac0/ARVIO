@@ -59,8 +59,8 @@ internal fun aioStreamsNotices(
 private const val ADDON_NOTICE_ROW_URL = "arvio-addon-notice://"
 
 /**
- * A notice as a display-only row under its addon's sources, like the Telegram search row: listed
- * with its reason after the real sources, never counted, played or pre-warmed.
+ * A notice as a display-only row under its addon's sources: listed with its reason after the
+ * real sources, never counted, played or pre-warmed.
  */
 internal fun addonNoticeRow(index: Int, notice: AddonNotice): StreamSource = StreamSource(
     source = "⚠️ ${notice.title}",

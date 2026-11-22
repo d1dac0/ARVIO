@@ -33,7 +33,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arflix.tv.MainActivity
 import com.arflix.tv.R
-import com.arflix.tv.ui.components.QrCodeImage
 import com.arflix.tv.ui.theme.AccentGreen
 import com.arflix.tv.ui.theme.ArflixTvTheme
 import com.arflix.tv.ui.theme.BackgroundCard
@@ -67,8 +66,8 @@ class CrashReportActivity : ComponentActivity() {
 
         val prefs = getSharedPreferences("arvio_crash_store", Context.MODE_PRIVATE)
         val crashId = intent.getStringExtra(EXTRA_CRASH_ID) ?: prefs.getString("last_crash_id", "N/A") ?: "N/A"
-        // The reported message stays in English so the crash report sent to Discord
-        // remains stable and searchable; only the on-screen fallback is localized.
+        // The reported message stays in English so a copied crash report stays stable
+        // and searchable; only the on-screen fallback is localized.
         val reportedCrashMsg = intent.getStringExtra(EXTRA_CRASH_MSG) ?: prefs.getString("last_crash_msg", null)
         val crashMsg = reportedCrashMsg ?: "Unexpected error"
         val crashTime = intent.getLongExtra(EXTRA_CRASH_TIME, prefs.getLong("last_crash_time", System.currentTimeMillis()))
@@ -103,7 +102,6 @@ class CrashReportActivity : ComponentActivity() {
         const val EXTRA_CRASH_MSG = "extra_crash_msg"
         const val EXTRA_CRASH_TIME = "extra_crash_time"
         const val EXTRA_CRASH_PROVIDER = "extra_crash_provider"
-        const val DISCORD_BUG_CHANNEL_URL = "https://discord.gg/UavuEYMfQ4"
     }
 }
 
@@ -155,12 +153,6 @@ fun CrashReportScreen(
         """.trimIndent()
     }
 
-    val webBridgeUrl = remember(crashId, crashVersion, crashMsg, crashTime, firebase) {
-        val encodedErr = Uri.encode(crashMsg.take(300))
-        val encodedV = Uri.encode(crashVersion)
-        "https://arvio.tv/report?provider=${if (firebase) "firebase" else "sentry"}&id=${Uri.encode(crashId)}&v=$encodedV&err=$encodedErr&t=$crashTime"
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -185,39 +177,14 @@ fun CrashReportScreen(
 
             Text(
                 text = if (isTv) {
-                    stringResource(R.string.crash_desc_tv)
+                    stringResource(R.string.crash_hint_tv)
                 } else {
-                    stringResource(R.string.crash_desc_mobile)
+                    stringResource(R.string.crash_hint_mobile)
                 },
                 color = TextSecondary,
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center
             )
-
-            if (isTv) {
-                // TV layout: Show clean QR Code prominently pointing to arvio.tv/report
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.White,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                ) {
-                    QrCodeImage(
-                        data = webBridgeUrl,
-                        sizePx = 320,
-                        modifier = Modifier
-                            .size(220.dp)
-                            .padding(16.dp)
-                    )
-                }
-
-                Text(
-                    text = stringResource(R.string.crash_qr_hint),
-                    color = AccentGreen,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center
-                )
-            }
 
             // Crash Details Card
             Surface(
@@ -263,18 +230,13 @@ fun CrashReportScreen(
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             val clip = ClipData.newPlainText("ARVIO Crash Report", formattedReport)
                             clipboard.setPrimaryClip(clip)
-                            Toast.makeText(context, R.string.crash_copied_toast, Toast.LENGTH_LONG).show()
-
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(CrashReportActivity.DISCORD_BUG_CHANNEL_URL)).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            context.startActivity(intent)
+                            Toast.makeText(context, R.string.crash_report_copied, Toast.LENGTH_LONG).show()
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5865F2)),
+                        colors = ButtonDefaults.buttonColors(containerColor = BackgroundCard),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(stringResource(R.string.crash_report_discord), color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.crash_copy_report), color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
 

@@ -65,12 +65,12 @@ Android only accepts an update with the same signing key, so:
 signed automatically; without it Gradle silently falls back to the debug key.
 Output: `app/build/outputs/apk/sideload/release/`.
 
-Release builds normally refuse to run without real Telegram and Trakt
+Release builds normally refuse to run without real Trakt
 credentials (`validateReleaseCloudSecrets` in `app/build.gradle.kts`).
 `-ParvioAllowMissingIntegrations=true` downgrades that gate to a warning, which
 is what the fork workflow uses. The APK then falls back to the placeholders in
-`secrets.defaults.properties`: Telegram sign-in and Trakt syncing stay disabled,
-everything else works.
+`secrets.defaults.properties`: Trakt syncing stays disabled, everything else
+works.
 
 ### TMDB metadata
 
@@ -95,7 +95,6 @@ workflow forwards them as environment variables, and they take priority over
 
 | Secret | Effect when set |
 | --- | --- |
-| `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` | Telegram sign-in and streaming work |
 | `TRAKT_CLIENT_ID`, `TRAKT_CLIENT_SECRET` | Trakt connection and scrobbling work |
 
 ### Trakt without repository secrets
@@ -120,10 +119,6 @@ Without a local `secrets.properties`, builds fall back to the public defaults,
 including upstream's Supabase project URL and anon key — i.e. cloud sync talks to
 upstream's backend. Point `SUPABASE_URL`/`APP_ANON_KEY` elsewhere if you want
 your own.
-
-The private Discord partner SDK (`app/libs/discord_partner_sdk.aar`, fetched in
-upstream CI through a deploy key) is not available to forks, so Discord partner
-features are absent.
 
 ## Cutting a release
 

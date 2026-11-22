@@ -711,7 +711,6 @@
     <string name="settings_arvio_cloud">ARVIO-Cloud</string>
     <string name="settings_cloud_account_desc">Optionales Konto zum Synchronisieren von Profilen, Addons, Katalogen und IPTV-Einstellungen</string>
     <string name="settings_trakt_desc">Schauhistorie, Fortschritt und Merkliste synchronisieren</string>
-    <string name="settings_telegram_desc">Durchsuche deine Kanäle und Gruppen nach Videodateien</string>
     <string name="settings_badge_open">ÖFFNEN</string>
     <string name="settings_sync_local_cloud_now">Lokaler und Cloud-Stand werden jetzt synchronisiert</string>
     <string name="settings_upload_restore_now">Lokalen Stand hochladen, dann aus der Cloud wiederherstellen</string>
@@ -857,15 +856,13 @@
     <string name="settings_desc_stream_integrations">Integrationen anordnen, um die Reihenfolge bei Wiedergabe und Laden festzulegen.</string>
     <string name="settings_stream_integrations_list_title">Integrationen</string>
     <string name="settings_stream_integrations_helper">Weiter oben stehende Integrationen werden zuerst durchsucht.</string>
-    <string name="settings_no_stream_integrations_configured">Keine Stream-Integrationen eingerichtet. Füge Addons, Plugins, Home Server, IPTV-Playlists oder Telegram hinzu, um ihre Wiedergabe-Reihenfolge festzulegen.</string>
+    <string name="settings_no_stream_integrations_configured">Keine Stream-Integrationen eingerichtet. Füge Addons, Plugins, Home Server oder IPTV-Playlists hinzu, um ihre Wiedergabe-Reihenfolge festzulegen.</string>
     <string name="stream_integration_home_server">Home Server</string>
     <string name="stream_integration_home_server_desc">Lokale und eigene Medienserver (Jellyfin, Emby, Plex).</string>
     <string name="stream_integration_stremio">Stremio-Addons</string>
     <string name="stream_integration_stremio_desc">Installierte Community-Streaming- und Debrid-Addons.</string>
     <string name="stream_integration_plugins">Plugins &amp; Erweiterungen</string>
     <string name="stream_integration_plugins_desc">Eigene Scraper-Erweiterungen und Laufzeit-Plugins.</string>
-    <string name="stream_integration_telegram">Telegram</string>
-    <string name="stream_integration_telegram_desc">Direktes Streaming aus deinen verbundenen Telegram-Chats und -Kanälen.</string>
     <string name="stream_integration_iptv_vod">IPTV-VOD</string>
     <string name="stream_integration_iptv_vod_desc">Filme und Serien auf Abruf aus deinen IPTV-Playlists.</string>
     <string name="stream_integration_move_up">Nach oben</string>
@@ -1374,43 +1371,6 @@
     <string name="avatar_cat_media">Medien</string>
     <string name="avatar_cat_nature">Natur</string>
     <string name="context_press_back_cancel">Zurück drücken zum Abbrechen</string>
-    <string name="telegram_connecting">Verbinden…</string>
-    <string name="telegram_preparing_qr">QR-Code wird vorbereitet…</string>
-    <string name="telegram_connect_title">Telegram verbinden</string>
-    <string name="telegram_connect_desc">Durchsuche deine Kanäle und Gruppen nach Videodateien, sobald du einen Film oder eine Serie öffnest.</string>
-    <string name="telegram_disclaimer">Arvio ist nicht für die Inhalte verantwortlich, die über diese Funktion gestreamt werden. Verbinde nur dein eigenes Konto und nutze es fair — respektiere Urheberrecht und geltende Gesetze.</string>
-    <string name="telegram_not_configured">Die Telegram-Anbindung ist in dieser Version nicht eingerichtet.</string>
-    <string name="telegram_scan_title">Mit Telegram scannen</string>
-    <string name="telegram_scan_instructions">Telegram auf dem Telefon öffnen → Einstellungen → Geräte → Desktop-Gerät verknüpfen</string>
-    <string name="telegram_qr_code_desc">Telegram-QR-Code</string>
-    <string name="telegram_qr_expires">QR-Code läuft in 30 Sekunden ab — aktualisiert sich automatisch</string>
-    <string name="telegram_phone_title">Telefonnummer eingeben</string>
-    <string name="telegram_phone_desc">Verwende dieselbe Nummer, die bei deinem Telegram-Konto registriert ist.</string>
-    <string name="telegram_phone_label">Telefonnummer</string>
-    <string name="telegram_phone_error">Muss mit + beginnen und Landesvorwahl enthalten, z. B. +1 für USA, +44 für UK</string>
-    <string name="telegram_phone_format">Internationales Format: +[Landesvorwahl][Nummer]</string>
-    <string name="telegram_sending_code">Code wird gesendet…</string>
-    <string name="telegram_send_code">CODE SENDEN</string>
-    <string name="telegram_code_sent">Code an deine Telegram-App gesendet</string>
-    <string name="telegram_code_title">Code eingeben</string>
-    <string name="telegram_code_desc">Prüfe deine Telegram-App auf einen %1$d-stelligen Code.</string>
-    <string name="telegram_code_label">Bestätigungscode</string>
-    <string name="telegram_2fa_title">Zwei-Schritt-Verifizierung</string>
-    <string name="telegram_2fa_desc">Dein Konto hat ein zusätzliches Passwort.</string>
-    <string name="telegram_password_label">Passwort</string>
-    <string name="telegram_signed_in_as">Angemeldet als %1$s</string>
-    <string name="telegram_disconnect_btn">TRENNEN</string>
-    <string name="telegram_video_cache">Video-Cache</string>
-    <string name="telegram_clear_cache_btn">LEEREN</string>
-    <string name="telegram_search_on_click_title">Telegram nur beim Klick auf die Telegram-Quelle durchsuchen</string>
-    <string name="telegram_search_on_click_desc">Vermeidet das Suchlimit von Telegram. Ausschalten, um Telegram automatisch zusammen mit den anderen Quellen zu durchsuchen.</string>
-    <string name="telegram_search_row_idle">Klicken, um Telegram zu durchsuchen</string>
-    <string name="telegram_search_row_searching">Telegram wird durchsucht …</string>
-    <string name="telegram_search_row_none">Keine Telegram-Quellen gefunden — auswählen, um erneut zu suchen</string>
-    <string name="telegram_connection_failed">Verbindung fehlgeschlagen</string>
-    <string name="telegram_try_again">ERNEUT VERSUCHEN</string>
-    <string name="telegram_disconnect_confirm_title">Telegram trennen?</string>
-    <string name="telegram_disconnect_confirm_desc">Du musst dich erneut anmelden, um Telegram als Quelle zu nutzen.</string>
     <string name="plugin_screen_title">Plugins (Test)</string>
     <string name="plugin_screen_add_repo">Repository hinzufügen</string>
     <string name="plugin_screen_installed_repos">Installierte Repositories</string>
@@ -1427,14 +1387,9 @@
 
     <!-- Crash report screen (de) -->
     <string name="crash_title">⚠️ In ARVIO ist ein Fehler aufgetreten</string>
-    <string name="crash_desc_tv">Scanne den QR-Code unten mit der Handy-Kamera, um den Absturzbericht automatisch zu kopieren und unseren Discord-Fehlerkanal zu öffnen.</string>
-    <string name="crash_desc_mobile">Entschuldige die Unterbrechung. Du kannst diesen Absturz direkt in unserem Discord-Kanal melden und uns so bei der Fehlersuche helfen.</string>
-    <string name="crash_qr_hint">Scannen, um arvio.tv zu öffnen — ein Tipp kopiert den Bericht und öffnet Discord.</string>
     <string name="crash_details_title">Angaben zum Absturz</string>
     <string name="crash_details_body">ID: %1$s\nZeit: %2$s\nVersion: %3$s\nFehler: %4$s</string>
     <string name="crash_error_unexpected">Unerwarteter Fehler</string>
-    <string name="crash_copied_toast">Absturzdetails kopiert. Discord wird geöffnet …</string>
-    <string name="crash_report_discord">Auf Discord melden</string>
     <string name="crash_restart_app">ARVIO neu starten</string>
 
     <string name="profile_edit_title">Profil bearbeiten</string>
@@ -1841,7 +1796,6 @@
     <string name="trakt_not_authenticated">Nicht bei Trakt authentifiziert</string>
     <string name="sync_supabase_auth_failed">Supabase-Authentifizierung fehlgeschlagen</string>
     <string name="launcher_continue_dash">%1$s - %2$s</string>
-    <string name="telegram_search_timed_out">Telegram-Suche abgelaufen</string>
     <string name="profile_avatar_import_failed">Avatar-Bild konnte nicht importiert werden</string>
     <string name="profile_created_success">Profil erfolgreich erstellt</string>
     <string name="profile_updated">Profil aktualisiert</string>
@@ -1872,9 +1826,6 @@
     <string name="homeserver_signin_failed_code">Server-Anmeldung fehlgeschlagen (%1$d)</string>
     <string name="homeserver_no_playable_account">Server-Anmeldung hat kein abspielbares Konto zurückgegeben</string>
     <string name="homeserver_missing_token">Konto-Token fehlt</string>
-    <string name="telegram_search_failed">Telegram-Suche fehlgeschlagen</string>
-    <string name="telegram_too_many_searches">Zu viele Suchen — bitte warte %1$d s, bevor du es erneut versuchst</string>
-    <string name="telegram_error_raw">Telegram: %1$s</string>
     <string name="auth_email_required">E-Mail ist erforderlich</string>
     <string name="auth_email_invalid">Gib eine gültige E-Mail-Adresse ein</string>
     <string name="auth_email_real_required">Verwende eine echte E-Mail-Adresse</string>
@@ -1908,17 +1859,7 @@
     <string name="program_no_title">Ohne Titel</string>
     <string name="program_unknown">Unbekannte Sendung</string>
     <string name="sync_in_progress">Sync läuft bereits</string>
-    <string name="telegram_tdlib_failed">TDLib konnte nicht gestartet werden: %1$s</string>
-    <string name="telegram_tdlib_unavailable">TDLib auf diesem Gerät nicht verfügbar</string>
     <string name="ratings">Episodenbewertungen</string>
-    <string name="discord_connect_title">Discord verbinden</string>
-    <string name="discord_rpc_subtitle">Rich-Presence-Integration</string>
-    <string name="discord_qr_explanation">Scanne diesen QR-Code mit der Handy-Kamera, um Discord Rich Presence für dein Profil zu autorisieren.</string>
-    <string name="discord_connecting">Verbinden…</string>
-    <string name="discord_waiting_approval">Warten auf Bestätigung…</string>
-    <string name="discord_qr_instructions">1. QR-Code mit dem Telefon scannen\n2. In Discord auf \'Autorisieren\' tippen\n3. Verbindet sich automatisch</string>
-    <string name="discord_not_included_in_build">In dieser Version nicht enthalten</string>
-    <string name="discord_rpc_help_desc">Zeige deinen Wiedergabestatus in deinem Discord-Profil.</string>
 
     <!-- Live TV AI subtitles -->
     <string name="live_ai_subtitles">KI-Untertitel</string>

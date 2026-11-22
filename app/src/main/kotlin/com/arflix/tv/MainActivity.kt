@@ -297,16 +297,6 @@ class MainActivity : ComponentActivity() {
             startActivity(crashIntent)
         }
 
-        // Initialize Discord RPC Manager
-        com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.init(this)
-        intent?.data?.let { uri ->
-            android.util.Log.d("MainActivity", "Received intent data URI in onCreate")
-            if (uri.scheme == "arvio" && uri.host == "discord" && uri.path == "/auth") {
-                android.util.Log.i("MainActivity", "Matching Discord auth redirect. Forwarding to DiscordRpcManager.")
-                com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.onLoginDeepLink(uri)
-            }
-        }
-
         // Set orientation based on device type
         requestedOrientation = when (initialDeviceType) {
             DeviceType.TV -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -540,22 +530,11 @@ class MainActivity : ComponentActivity() {
         pendingInstallPackUrl = parseInstallPackUrl(intent)
         pendingInstallAddonUrl = parseInstallAddonUrl(intent)
         val partnerLink = parsePartnerOpenLink(intent)
-        val isDiscordAuthCallback = intent.data?.let {
-            it.scheme == "arvio" && it.host == "discord" && it.path == "/auth"
-        } == true
         if (partnerLink != null ||
-            (intent.action == android.content.Intent.ACTION_VIEW && !isDiscordAuthCallback) ||
+            intent.action == android.content.Intent.ACTION_VIEW ||
             intent.action == android.content.Intent.ACTION_MAIN) {
-            // Supersede an in-flight lookup immediately. Discord auth callbacks deliberately
-            // leave the title pending so authentication cannot discard the user's destination.
+            // Supersede an in-flight lookup immediately.
             partnerOpenLinks.replace(partnerLink)
-        }
-        intent.data?.let { uri ->
-            android.util.Log.d("MainActivity", "Received intent data URI in onNewIntent")
-            if (uri.scheme == "arvio" && uri.host == "discord" && uri.path == "/auth") {
-                android.util.Log.i("MainActivity", "Matching Discord auth redirect. Forwarding to DiscordRpcManager.")
-                com.arflix.tv.ui.screens.details.discord.DiscordRpcManager.onLoginDeepLink(uri)
-            }
         }
     }
 

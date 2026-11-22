@@ -45,9 +45,6 @@ if args.apk:
 config = args.build_config.read_text(encoding="utf-8")
 assert re.search(rf'VERSION_CODE = {args.version_code};', config), "Build configuration version code mismatch"
 assert f'VERSION_NAME = "{args.version_name}"' in config, "Build configuration version name mismatch"
-api_id = re.search(r'TELEGRAM_API_ID = "([1-9][0-9]+)"', config)
-api_hash = re.search(r'TELEGRAM_API_HASH = "([a-fA-F0-9]{32})"', config)
-assert api_id and api_hash, "Telegram release configuration missing"
 mdblist_client_id = re.search(r'MDBLIST_CLIENT_ID = "([^\"]+)"', config)
 assert mdblist_client_id and not mdblist_client_id[1].startswith("your-"), "MDBList OAuth release configuration missing"
 report = {"versionName": args.version_name, "versionCode": args.version_code,
@@ -59,11 +56,7 @@ for path in (args.apk, args.aab):
         names = archive.namelist()
         libs = [name for name in names if name.endswith(".so")]
         assert not any("/x86" in name for name in libs), "Emulator ABI in public release"
-        for abi in ("arm64-v8a", "armeabi-v7a"):
-            for library in ("libtdjni.so", "libdiscord_partner_sdk.so", "libarvio_native.so"):
-                assert any(name.endswith(f"/{abi}/{library}") for name in libs), f"Missing {abi}/{library}"
         dex = [name for name in names if name.endswith(".dex")]
-        assert any(api_hash[1].encode() in archive.read(name) for name in dex), "Telegram configuration absent from binary"
         assert any(mdblist_client_id[1].encode() in archive.read(name) for name in dex), "MDBList OAuth configuration absent from binary"
         for name in libs:
             data = archive.read(name)
@@ -80,6 +73,6 @@ for path in (args.apk, args.aab):
                 assert segment != 1 or alignment >= 16384, f"16 KB alignment failed: {name}"
     report["files"].append({"name": path.name, "bytes": path.stat().st_size,
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "telegramConfigured": True, "mdblistOAuthConfigured": True,
+        "mdblistOAuthConfigured": True,
         "nativeLibraries": len(libs), "elf64bit16kb": True})
 print(json.dumps(report, indent=2))

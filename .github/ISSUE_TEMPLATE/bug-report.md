@@ -52,7 +52,7 @@ If applicable, add screenshots or a short screen recording to help explain the p
 - [ ] **Playback / Player** (ExoPlayer/Media3, video stutter, audio passthrough, HDR/DV)
 - [ ] **Subtitles / Audio** (Subtitle sync, missing tracks, AI subtitles)
 - [ ] **IPTV / Live TV** (M3U / Xtream playlists, EPG guide, stream playback)
-- [ ] **Home Servers & Sources** (Jellyfin, Emby, Plex, Telegram, Addons)
+- [ ] **Home Servers & Sources** (Jellyfin, Emby, Plex, Addons)
 - [ ] **Catalogs & Metadata** (TMDB details, Trakt lists, MDBList)
 - [ ] **ARVIO Cloud / Profiles** (Cloud sync, watch progress, profile PINs, Trakt scrobbling)
 - [ ] **UI / Remote Navigation** (D-Pad focus issues, gestures, predictive back)
@@ -61,7 +61,7 @@ If applicable, add screenshots or a short screen recording to help explain the p
 ---
 
 ### Media & Playback Details *(If reporting a video/audio/playback issue)*
-- **Source Type:** [e.g., Addon/Debrid, Jellyfin, IPTV Xtream, Direct URL, Telegram]
+- **Source Type:** [e.g., Addon/Debrid, Jellyfin, IPTV Xtream, Direct URL]
 - **Stream Format / Codecs:** [e.g., 4K HDR / Dolby Vision / H.265 / AV1 / EAC3 5.1]
 - **Player Settings:** [e.g., Tunneled Playback ON/OFF, Audio Passthrough ON/OFF]
 

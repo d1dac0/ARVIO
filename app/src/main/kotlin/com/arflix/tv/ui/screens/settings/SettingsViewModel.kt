@@ -68,8 +68,6 @@ import com.arflix.tv.data.model.StreamSearchMode
 import com.arflix.tv.data.repository.StreamIntegrationRepository
 import com.arflix.tv.data.repository.StreamRepository
 import com.arflix.tv.core.plugin.PluginManager
-import com.arflix.tv.data.telegram.TelegramAuthState
-import com.arflix.tv.data.telegram.TelegramRepository
 import com.arflix.tv.data.repository.TvDeviceAuthRepository
 import com.arflix.tv.data.repository.TvDeviceAuthSession
 import com.arflix.tv.data.repository.TvDeviceAuthStatusType
@@ -451,9 +449,7 @@ data class SettingsUiState(
     val streamIntegrations: List<StreamIntegrationConfig> = emptyList(),
     val streamProviderItems: List<StreamProviderItem> = emptyList(),
     val streamSearchMode: StreamSearchMode = StreamSearchMode.PARALLEL,
-    val pluginsCount: Int = 0,
-    val isTelegramConnected: Boolean = false,
-    val telegramUserName: String? = null
+    val pluginsCount: Int = 0
 )
 
 data class KidsListApprovalUi(
@@ -497,7 +493,6 @@ class SettingsViewModel @Inject constructor(
     private val simklSyncService: com.arflix.tv.data.repository.simkl.SimklSyncService,
     private val streamIntegrationRepository: StreamIntegrationRepository,
     private val pluginManager: PluginManager,
-    private val telegramRepository: TelegramRepository,
     private val communityAddonRepository: CommunityAddonRepository,
     private val traktManualSync: com.arflix.tv.data.repository.TraktManualSync,
     private val partnerDelivery: dagger.Lazy<com.arflix.tv.data.repository.PartnerDeliveryRepository>? = null,
@@ -1280,14 +1275,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             pluginManager.scrapers.collect { scrapers ->
                 _uiState.value = _uiState.value.copy(pluginsCount = scrapers.count { it.enabled })
-            }
-        }
-        viewModelScope.launch {
-            telegramRepository.authState.collect { authState ->
-                _uiState.value = _uiState.value.copy(
-                    isTelegramConnected = authState is TelegramAuthState.Ready,
-                    telegramUserName = (authState as? TelegramAuthState.Ready)?.firstName?.takeIf { it.isNotBlank() }
-                )
             }
         }
     }

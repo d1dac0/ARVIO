@@ -55,7 +55,6 @@ class ColdStartSyncTest {
             client,
             Provider { trakt },
             Provider { error("Cloud sync is not needed to restore identity") },
-            Provider { error("Telegram is not needed to restore identity") },
             Provider { error("Launcher data is not needed to restore identity") },
             Provider { error("Trakt outbox is not needed to restore identity") },
             Provider { error("Plugins are not needed to restore identity") }

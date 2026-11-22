@@ -91,27 +91,6 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Validate private Discord SDK access
-        env:
-          DISCORD_SDK_DEPLOY_KEY: ${{ secrets.DISCORD_SDK_DEPLOY_KEY }}
-        run: |
-          : "${DISCORD_SDK_DEPLOY_KEY:?Missing DISCORD_SDK_DEPLOY_KEY repository secret}"
-
-      - name: Fetch private Discord Partner SDK
-        uses: actions/checkout@v4
-        with:
-          repository: ProdigyV21/ARVIO-private-dependencies
-          ref: main
-          path: .private-dependencies
-          ssh-key: ${{ secrets.DISCORD_SDK_DEPLOY_KEY }}
-          persist-credentials: false
-
-      - name: Install Discord Partner SDK
-        run: |
-          install -d app/libs
-          install -m 0600 .private-dependencies/discord_partner_sdk.aar app/libs/discord_partner_sdk.aar
-          echo "dc7b1014ae4797e5469261d151fd26fc056524d03e42e55fd39e085f0f09e71a  app/libs/discord_partner_sdk.aar" | sha256sum --check --strict
-
       - name: Validate required credentials
         env:
           APP_ANON_KEY: ${{ secrets.APP_ANON_KEY }}
@@ -119,8 +98,6 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
           TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -135,8 +112,6 @@ jobs:
           : "${TMDB_API_KEY:?Missing TMDB_API_KEY repository secret}"
           : "${TRAKT_CLIENT_ID:?Missing TRAKT_CLIENT_ID repository secret}"
           : "${TRAKT_CLIENT_SECRET:?Missing TRAKT_CLIENT_SECRET repository secret}"
-          : "${TELEGRAM_API_ID:?Missing TELEGRAM_API_ID repository secret}"
-          : "${TELEGRAM_API_HASH:?Missing TELEGRAM_API_HASH repository secret}"
           : "${KEYSTORE_BASE64:?Missing KEYSTORE_BASE64 repository secret}"
           : "${KEYSTORE_PASSWORD:?Missing KEYSTORE_PASSWORD repository secret}"
           : "${KEY_ALIAS:?Missing KEY_ALIAS repository secret}"
@@ -152,8 +127,6 @@ jobs:
           TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
           TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
           MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         run: |
           printf '%s\n' \
             "APP_ANON_KEY=$APP_ANON_KEY" \
@@ -164,8 +137,6 @@ jobs:
             "TRAKT_CLIENT_ID=$TRAKT_CLIENT_ID" \
             "TRAKT_CLIENT_SECRET=$TRAKT_CLIENT_SECRET" \
             "MDBLIST_CLIENT_ID=${MDBLIST_CLIENT_ID:-}" \
-            "TELEGRAM_API_ID=$TELEGRAM_API_ID" \
-            "TELEGRAM_API_HASH=$TELEGRAM_API_HASH" \
             > secrets.properties
 
       - name: Prepare production signing

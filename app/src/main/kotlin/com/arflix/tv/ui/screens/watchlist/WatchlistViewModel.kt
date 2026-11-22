@@ -137,8 +137,6 @@ data class WatchlistUiState(
     val error: String? = null,
     val toastMessage: String? = null,
     val toastType: ToastType = ToastType.INFO,
-    val lastFocusedSectionIndex: Int = 0,
-    val lastFocusedItemIndex: Int = 0,
     val hasMore: Boolean = false,
     val isLoadingMore: Boolean = false
 ) {
@@ -768,19 +766,10 @@ class WatchlistViewModel @Inject constructor(
             movies = cached?.filter { it.mediaType == MOVIE } ?: emptyList(),
             series = cached?.filter { it.mediaType == TV } ?: emptyList(),
             error = null,
-            lastFocusedSectionIndex = 0,
-            lastFocusedItemIndex = 0,
             hasMore = pageState.hasMore,
             isLoadingMore = false
         )
         loadActiveSourceItems()
-    }
-
-    fun saveFocusState(sectionIndex: Int, itemIndex: Int) {
-        _uiState.value = _uiState.value.copy(
-            lastFocusedSectionIndex = sectionIndex,
-            lastFocusedItemIndex = itemIndex
-        )
     }
 
     private fun trackerLoadError(provider: TrackerLibraryProvider, error: Throwable): String = when {

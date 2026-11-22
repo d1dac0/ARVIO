@@ -68,14 +68,14 @@ class TelegramClient @Inject constructor(
         if (client != null) return
         scope.launch {
             if (client != null) return@launch
-            stepLog("checking library availability")
-            if (!isAvailable) {
-                _authState.value = TelegramAuthState.Error(context.getString(R.string.telegram_tdlib_unavailable))
-                return@launch
-            }
             if (!TelegramConfig.isConfigured) {
                 stepLog("Telegram not configured - aborting initialization")
                 _authState.value = TelegramAuthState.Error(context.getString(R.string.telegram_not_configured))
+                return@launch
+            }
+            stepLog("checking library availability")
+            if (!isAvailable) {
+                _authState.value = TelegramAuthState.Error(context.getString(R.string.telegram_tdlib_unavailable))
                 return@launch
             }
             stepLog("library loaded OK")

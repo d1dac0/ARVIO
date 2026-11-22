@@ -8,9 +8,11 @@ import android.os.Build
 import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -28,25 +30,44 @@ import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.AuthState
 import com.arflix.tv.data.repository.CloudSyncCoordinator
 import com.arflix.tv.data.repository.CloudSyncRepository
+import com.arflix.tv.data.repository.MediaRepository
+import com.arflix.tv.data.repository.KidsContentFilter
 import com.arflix.tv.data.repository.RealtimeSyncManager
 import com.arflix.tv.data.repository.WatchlistRepository
 import com.arflix.tv.data.repository.ProfileManager
+import com.arflix.tv.data.repository.TraktRepository
 import com.arflix.tv.util.AppLogger
 import com.arflix.tv.util.DiagnosticsManager
 import com.arflix.tv.util.DeviceType
 import com.arflix.tv.util.detectDeviceType
 import com.arflix.tv.worker.TraktSyncWorker
+import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import com.arflix.tv.util.settingsDataStore
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
+
+internal suspend fun Flow<AuthState>.observeCloudSyncAccount(onAccount: suspend (String?) -> Unit) {
+    filter { it !is AuthState.Loading }
+        .map { (it as? AuthState.Authenticated)?.userId?.takeIf(String::isNotBlank) }
+        .distinctUntilChanged()
+        .collectLatest { userId ->
+            if (userId != null) delay(2_000L)
+            onAccount(userId)
+        }
+}
 
 /**
  * ARVIO TV Application class
@@ -54,6 +75,7 @@ import javax.inject.Inject
 @HiltAndroidApp
 class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFactory {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val interactiveStartupStarted = AtomicBoolean(false)
     @Volatile
     private var appImageLoader: ImageLoader? = null
 
@@ -64,17 +86,23 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
     @Inject
     lateinit var authRepository: AuthRepository
     @Inject
-    lateinit var cloudSyncRepository: CloudSyncRepository
+    lateinit var cloudSyncRepository: Lazy<CloudSyncRepository>
     @Inject
-    lateinit var cloudSyncCoordinator: CloudSyncCoordinator
+    lateinit var cloudSyncCoordinator: Lazy<CloudSyncCoordinator>
     @Inject
-    lateinit var realtimeSyncManager: RealtimeSyncManager
+    lateinit var realtimeSyncManager: Lazy<RealtimeSyncManager>
     @Inject
-    lateinit var watchlistRepository: WatchlistRepository
+    lateinit var watchlistRepository: Lazy<WatchlistRepository>
     @Inject
-    lateinit var appUsageAnalyticsRepository: AppUsageAnalyticsRepository
+    lateinit var appUsageAnalyticsRepository: Lazy<AppUsageAnalyticsRepository>
     @Inject
-    lateinit var kidsStarterCatalogs: com.arflix.tv.data.repository.KidsStarterCatalogs
+    lateinit var kidsStarterCatalogs: Lazy<com.arflix.tv.data.repository.KidsStarterCatalogs>
+    @Inject
+    lateinit var kidsContentFilter: Lazy<KidsContentFilter>
+    @Inject
+    lateinit var mediaRepository: Lazy<MediaRepository>
+    @Inject
+    lateinit var traktRepository: Lazy<TraktRepository>
 
     /**
      * [OkHttpProvider.init] must run before *anything* first touches [OkHttpProvider.client]:
@@ -137,6 +165,14 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             val savedUserAgent = prefs[uaKey].orEmpty()
             OkHttpProvider.setCustomUserAgent(savedUserAgent)
 
+        }
+    }
+
+    /** Starts work that only makes sense after an activity has opened. */
+    fun startInteractiveServices() {
+        if (!interactiveStartupStarted.compareAndSet(false, true)) return
+
+        appScope.launch(Dispatchers.IO) {
             try {
                 OkHttpProvider.dns.lookup("image.tmdb.org")
             } catch (e: Exception) {
@@ -145,43 +181,25 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             }
         }
 
-        // Initialize active profile asynchronously to avoid blocking cold start.
-        // Wire realtime push notification when realtime is enabled.
-        cloudSyncRepository.onPushCompleted = { realtimeSyncManager.markPush() }
+        val initializeProfile = appScope.launch(Dispatchers.IO) {
+            try {
+                profileManager.ensureInitialized()
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                AppLogger.recordException(e)
+            }
+            kidsContentFilter.get()
+        }
 
         appScope.launch {
-            try {
-                profileManager.initialize()
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                AppLogger.recordException(e)
-            }
+            initializeProfile.join()
             // Preload watchlist cache in background for instant display
             try {
-                watchlistRepository.getWatchlistItems()
+                watchlistRepository.get().getWatchlistItems()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 AppLogger.recordException(e)
             }
-            delay(2_500L)
-            cloudSyncCoordinator.start()
-            if (!authRepository.getCurrentUserId().isNullOrBlank()) {
-                if (BuildConfig.ENABLE_REALTIME_CLOUD_SYNC) {
-                    realtimeSyncManager.start()
-                }
-                // Pull early enough that reopening the app feels like an actual
-                // sync, while still letting the first frame and profile bootstrap land.
-                delay(3_000L)
-                try {
-                    cloudSyncRepository.pullFromCloud()
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    AppLogger.recordException(e)
-                }
-            }
-            // After the first cloud pull: a kids profile synced from another device brings its
-            // "starter rows added" flag along, so rows removed there are not added back here.
-            kidsStarterCatalogs.start()
         }
 
         appScope.launch {
@@ -189,7 +207,7 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             // event can include account context without delaying app launch.
             delay(3_000L)
             try {
-                appUsageAnalyticsRepository.recordAppOpen()
+                appUsageAnalyticsRepository.get().recordAppOpen()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -197,36 +215,49 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             }
         }
 
-        // Observe auth state: start realtime on login, stop on logout
+        // The same observer owns the cold-start pull and the pull after sign-in.
         appScope.launch {
-            authRepository.authState.collectLatest { state ->
-                when (state) {
-                    is AuthState.Authenticated -> {
-                        delay(2_000L)
-                        if (!authRepository.getCurrentUserId().isNullOrBlank()) {
-                            cloudSyncCoordinator.start()
-                            if (BuildConfig.ENABLE_REALTIME_CLOUD_SYNC) {
-                                realtimeSyncManager.start()
-                            }
-                            try {
-                                cloudSyncRepository.pullFromCloud()
-                            } catch (e: Exception) {
-                                if (e is kotlinx.coroutines.CancellationException) throw e
-                                AppLogger.recordException(e)
-                            }
-                        }
+            initializeProfile.join()
+            val syncRepository = cloudSyncRepository.get()
+            syncRepository.onPushCompleted = {
+                if (BuildConfig.ENABLE_REALTIME_CLOUD_SYNC) realtimeSyncManager.get().markPush()
+            }
+            // Observe local changes even while signed out so a later sign-in can push them.
+            cloudSyncCoordinator.get().start()
+            var starterCatalogsStarted = false
+            authRepository.authState.observeCloudSyncAccount { userId ->
+                if (userId != null) {
+                    if (BuildConfig.ENABLE_REALTIME_CLOUD_SYNC) {
+                        realtimeSyncManager.get().start()
                     }
-                    AuthState.NotAuthenticated -> {
-                        realtimeSyncManager.stop()
-                        cloudSyncCoordinator.stop()
+                    try {
+                        syncRepository.pullFromCloud(recentRestoreWindowMs = 10_000L)
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        AppLogger.recordException(e)
                     }
-                    is AuthState.Error -> {
-                        realtimeSyncManager.stop()
-                        cloudSyncCoordinator.stop()
-                    }
-                    AuthState.Loading -> Unit
+                } else if (BuildConfig.ENABLE_REALTIME_CLOUD_SYNC) {
+                    realtimeSyncManager.get().stop()
+                }
+                if (!starterCatalogsStarted) {
+                    // Pull first so a synced profile brings its starter rows flag along.
+                    kidsStarterCatalogs.get().start()
+                    starterCatalogsStarted = true
                 }
             }
+        }
+        appScope.launch {
+            traktRepository.get().connection
+                .map { it.connected && !it.reconnectRequired }
+                .distinctUntilChanged()
+                .collect { connected ->
+                    if (connected) scheduleTraktSync()
+                    else {
+                        val workManager = WorkManager.getInstance(this@ArflixApplication)
+                        workManager.cancelUniqueWork(TraktSyncWorker.WORK_NAME)
+                        workManager.cancelUniqueWork(TraktSyncWorker.WORK_NAME_ON_OPEN)
+                    }
+                }
         }
     }
 
@@ -291,6 +322,12 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
+        // UI_HIDDEN (20) numerically exceeds TRIM_MEMORY_RUNNING_LOW (10) but only signals
+        // the UI went to the background, not memory pressure; trimming media caches there
+        // would drop them on every backgrounding (matches StreamRepository.onTrimMemory).
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW &&
+            level != ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN
+        ) trimMediaCaches()
         if (
             level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN ||
             level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE
@@ -301,7 +338,14 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
 
     override fun onLowMemory() {
         super.onLowMemory()
+        trimMediaCaches()
         clearImageMemoryCaches()
+    }
+
+    private fun trimMediaCaches() {
+        if (::mediaRepository.isInitialized && currentProcessName() == packageName) {
+            mediaRepository.get().trimMemory()
+        }
     }
 
     private fun clearImageMemoryCaches() {
@@ -332,10 +376,12 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
     /**
      * Schedule periodic Trakt data sync
      */
-    fun scheduleTraktSyncIfNeeded() {
+    private fun scheduleTraktSync() {
+        val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
         // Use INCREMENTAL sync on startup for fast app launch
         // Full sync only happens on periodic schedule or explicit user action
         val oneTimeRequest = OneTimeWorkRequestBuilder<TraktSyncWorker>()
+            .setConstraints(network)
             // Defer startup sync to keep first-run navigation and scrolling smooth.
             .setInitialDelay(2, TimeUnit.MINUTES)
             .setInputData(
@@ -347,6 +393,7 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         val syncRequest = PeriodicWorkRequestBuilder<TraktSyncWorker>(
             TraktSyncWorker.SYNC_INTERVAL_HOURS, TimeUnit.HOURS
         )
+            .setConstraints(network)
             .addTag(TraktSyncWorker.TAG)
             .build()
 
@@ -358,7 +405,7 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             TraktSyncWorker.WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.UPDATE,
             syncRequest
         )
     }

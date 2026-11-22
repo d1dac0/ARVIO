@@ -183,6 +183,7 @@ private fun Throwable.orCatalogMessage(fallback: SettingsMessage): SettingsMessa
         else -> message.orMessage(fallback)
     }
 
+@androidx.compose.runtime.Immutable
 data class AiKeyServerState(
     val isActive: Boolean = false,
     val serverUrl: String? = null,
@@ -630,6 +631,7 @@ class SettingsViewModel @Inject constructor(
     private var iptvLoadJob: Job? = null
     private var catalogSearchJob: Job? = null
     private var aiKeyServer: AiKeyConfigServer? = null
+    private var aiKeyServerJob: Job? = null
     private var lastCloudSyncedUserId: String? = null
     private var cloudDeviceCode: String? = null
     private var cloudUserCode: String? = null
@@ -2328,30 +2330,39 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun startAiKeyServer() {
-        viewModelScope.launch {
-            stopAiKeyServerInternal()
-            val server = AiKeyConfigServer.startOnAvailablePort(
-                onKeyReceived = { key ->
-                    viewModelScope.launch {
-                        saveSubtitleAiApiKey(key)
-                        _uiState.value = _uiState.value.copy(
-                            aiKeyServerState = _uiState.value.aiKeyServerState.copy(keyReceived = true)
-                        )
-                        kotlinx.coroutines.delay(2500)
-                        stopAiKeyServerInternal()
-                        _uiState.value = _uiState.value.copy(aiKeyServerState = AiKeyServerState())
-                    }
+        stopAiKeyServerInternal()
+        aiKeyServerJob = viewModelScope.launch {
+            var pendingServer: AiKeyConfigServer? = null
+            try {
+                val server = withContext(Dispatchers.IO) {
+                    AiKeyConfigServer.startOnAvailablePort(
+                        onKeyReceived = { key ->
+                            viewModelScope.launch {
+                                val activeServer = aiKeyServer ?: return@launch
+                                saveSubtitleAiApiKey(key)
+                                _uiState.value = _uiState.value.copy(
+                                    aiKeyServerState = _uiState.value.aiKeyServerState.copy(keyReceived = true)
+                                )
+                                kotlinx.coroutines.delay(2500)
+                                if (aiKeyServer === activeServer) stopAiKeyServer()
+                            }
+                        }
+                    ).also { pendingServer = it }
+                } ?: return@launch
+                aiKeyServer = server
+                pendingServer = null
+                val (url, qr) = withContext(Dispatchers.IO) {
+                    val ip = DeviceIpAddress.get(context) ?: "device-ip"
+                    val url = "http://$ip:${server.listeningPort}?t=${server.currentPairingToken}"
+                    url to runCatching { QrCodeGenerator.generate(url, 512) }.getOrNull()
                 }
-            ) ?: return@launch
-            aiKeyServer = server
-            val ip = DeviceIpAddress.get(context) ?: "device-ip"
-            // Include the one-time pairing token as query param so the QR (scanned
-            // by a phone) encodes the token and the server can validate it.
-            val url = "http://$ip:${server.listeningPort}?t=${server.currentPairingToken}"
-            val qr = runCatching { QrCodeGenerator.generate(url, 512) }.getOrNull()
-            _uiState.value = _uiState.value.copy(
-                aiKeyServerState = AiKeyServerState(isActive = true, serverUrl = url, qrBitmap = qr)
-            )
+                if (aiKeyServer !== server) return@launch
+                _uiState.value = _uiState.value.copy(
+                    aiKeyServerState = AiKeyServerState(isActive = true, serverUrl = url, qrBitmap = qr)
+                )
+            } finally {
+                pendingServer?.stop()
+            }
         }
     }
 
@@ -2361,6 +2372,8 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun stopAiKeyServerInternal() {
+        aiKeyServerJob?.cancel()
+        aiKeyServerJob = null
         aiKeyServer?.stop()
         aiKeyServer = null
     }

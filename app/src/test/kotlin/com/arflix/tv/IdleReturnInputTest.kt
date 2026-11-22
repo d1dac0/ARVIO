@@ -26,7 +26,7 @@ class IdleReturnInputTest {
         val coordinator = IdleReturnCoordinator(mockk(relaxed = true), mockk(relaxed = true), backgroundScope)
         coordinator.clock = { now }
         coordinator.markActive()
-        coordinator.isPlayerOpen = true
+        coordinator.onPlayerOpened()
         now += IdleReturnCoordinator.IDLE_THRESHOLD_MS
         coordinator.onAppForeground()
         assertFalse(coordinator.isIdle())
@@ -36,7 +36,7 @@ class IdleReturnInputTest {
         val up = MotionEvent.obtain(0, 10, MotionEvent.ACTION_UP, 10f, 10f, 0)
         try {
             assertTrue(activity.dispatchTouchEvent(down))
-            coordinator.isPlayerOpen = false
+            coordinator.onPlayerClosed()
             assertTrue(activity.dispatchTouchEvent(up))
         } finally {
             down.recycle()
@@ -49,13 +49,13 @@ class IdleReturnInputTest {
         val coordinator = IdleReturnCoordinator(mockk(relaxed = true), mockk(relaxed = true), backgroundScope)
         coordinator.clock = { now }
         coordinator.markActive()
-        coordinator.isPlayerOpen = true
+        coordinator.onPlayerOpened()
         now += IdleReturnCoordinator.IDLE_THRESHOLD_MS
         val activity = Robolectric.buildActivity(MainActivity::class.java).get()
         activity.idleReturnCoordinator = coordinator
         val keys = listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_BACK)
         keys.forEach { key -> assertTrue(activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, key))) }
-        coordinator.isPlayerOpen = false
+        coordinator.onPlayerClosed()
         keys.forEach { key ->
             assertTrue(activity.dispatchKeyEvent(KeyEvent(0, 1, KeyEvent.ACTION_DOWN, key, 1)))
             assertTrue(activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, key)))

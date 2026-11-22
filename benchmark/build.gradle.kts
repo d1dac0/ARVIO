@@ -34,22 +34,11 @@ android {
         }
     }
 
-    testOptions {
-        managedDevices {
-            devices {
-                create<com.android.build.api.dsl.ManagedVirtualDevice>("pixel6Api34") {
-                    device = "Pixel 6"
-                    apiLevel = 34
-                    systemImageSource = "aosp"
-                }
-            }
-        }
-    }
 }
 
 baselineProfile {
-    managedDevices += "pixel6Api34"
-    useConnectedDevices = false
+    // Prepare the playback fixture on a connected Android TV device or Android TV AVD.
+    useConnectedDevices = true
 }
 
 dependencies {

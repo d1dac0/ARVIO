@@ -58,6 +58,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -79,6 +80,7 @@ import com.arflix.tv.ui.screens.collections.CollectionBackdrop
 import com.arflix.tv.ui.screens.collections.CollectionSpotlight
 import com.arflix.tv.ui.screens.collections.collectionSpotlightHeight
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import com.arflix.tv.ui.theme.BackgroundCard
 import com.arflix.tv.ui.theme.BackgroundDark
 import com.arflix.tv.ui.theme.BackgroundElevated
@@ -145,6 +147,10 @@ fun WatchlistScreen(
     var topFocused by remember { mutableStateOf(false) }
     var topIndex by remember { mutableIntStateOf(if (currentProfile != null) 3 else 2) }
     val firstTab = remember { FocusRequester() }
+    val returnCardFocus = remember { FocusRequester() }
+    var pendingCardFocus by rememberSaveable { mutableStateOf<String?>(null) }
+    val returningCard = remember { pendingCardFocus }
+    var watchlistRemoval by remember { mutableStateOf<MediaItem?>(null) }
     var initialFocusPlaced by remember { mutableStateOf(false) }
     val filterButton = remember { FocusRequester() }
     val topFocus = remember { FocusRequester() }
@@ -169,6 +175,23 @@ fun WatchlistScreen(
         restore = { saved -> saved.mapValues { (_, value) -> val position = value as List<*>; LazyGridState(position[0] as Int, position[1] as Int) }.toMutableMap() }
     )) { mutableMapOf<String, LazyGridState>() }
     val grid = remember(sourceKey) { viewports.getOrPut(sourceKey) { LazyGridState() } }
+    val returnCardIndex = if (returningCard != null && pendingCardFocus == returningCard) {
+        items.indexOfFirst { libraryPreviewKey(it) == returningCard }
+    } else {
+        -1
+    }
+    LaunchedEffect(grid, returnCardIndex, touch) {
+        if (touch || returnCardIndex < 0) return@LaunchedEffect
+        if (grid.layoutInfo.visibleItemsInfo.none { it.index == returnCardIndex }) {
+            grid.scrollToItem(returnCardIndex)
+        }
+        // The lazy grid may attach the focus node a frame after the scroll finishes.
+        repeat(3) {
+            withFrameNanos { }
+            if (pendingCardFocus == null) return@LaunchedEffect
+            runCatching { returnCardFocus.requestFocus() }
+        }
+    }
     var revealJob by remember(grid) { mutableStateOf<Job?>(null) }
     var focusedGridRow by remember(grid) { mutableStateOf<Pair<Int, Int>?>(null) }
     DisposableEffect(grid) {
@@ -194,18 +217,20 @@ fun WatchlistScreen(
         }
     }
     var focusedPreviewKey by rememberSaveable(currentProfile?.id, sourceKey) { mutableStateOf<String?>(null) }
-    val touchPreviewIndex by remember(grid) { derivedStateOf { grid.firstVisibleItemIndex } }
-    val previewCandidate = if (touch) items.getOrNull(touchPreviewIndex.coerceAtMost(items.lastIndex.coerceAtLeast(0)))
-        else items.firstOrNull { libraryPreviewKey(it) == focusedPreviewKey } ?: items.firstOrNull()
+    val previewItems by rememberUpdatedState(items)
+    val previewCandidate by remember(grid, touch, currentProfile?.id, sourceKey) {
+        derivedStateOf {
+            if (touch) previewItems.getOrNull(grid.firstVisibleItemIndex.coerceAtMost(previewItems.lastIndex.coerceAtLeast(0)))
+            else previewItems.firstOrNull { libraryPreviewKey(it) == focusedPreviewKey } ?: previewItems.firstOrNull()
+        }
+    }
     var readyPreview by remember(currentProfile?.id, sourceKey) { mutableStateOf<LibraryPreview?>(null) }
-    val activePreview = readyPreview ?: previewCandidate?.let { LibraryPreview(it) }
-    val previewItem = activePreview?.item
-    LaunchedEffect(currentProfile?.id, sourceKey, previewCandidate?.let(::libraryPreviewKey), calendarMode, collections) {
-        if (!calendarMode && !collections) {
-            val item = previewCandidate
+    LaunchedEffect(currentProfile?.id, sourceKey, grid, touch, calendarMode, collections) {
+        if (calendarMode || collections) return@LaunchedEffect
+        snapshotFlow { previewCandidate }.collectLatest { item ->
             if (item == null) {
                 readyPreview = null
-                return@LaunchedEffect
+                return@collectLatest
             }
             delay(100)
             viewModel.ensureLogo(item)
@@ -305,7 +330,7 @@ fun WatchlistScreen(
                 LibrarySection.entries.forEachIndexed { index, entry ->
                     OledControl(tr(entry.label), selected = section == entry,
                         modifier = (if(index == 0) Modifier.focusRequester(firstTab).onGloballyPositioned {
-                            if(!touch && !initialFocusPlaced) { initialFocusPlaced = true; firstTab.requestFocus() }
+                            if (!touch && !initialFocusPlaced && returnCardIndex < 0) { initialFocusPlaced = true; firstTab.requestFocus() }
                         } else if (entry == LibrarySection.CALENDAR) Modifier.focusRequester(calendarTab) else Modifier), compact = compact,
                         onClick = { selectSection(entry) })
                 }
@@ -465,7 +490,8 @@ fun WatchlistScreen(
                         CatalogConfig(sourceKey, scopeSources.firstOrNull { it.id == selectedId }?.title
                             ?: state.selectedSource.title, CatalogSourceType.PREINSTALLED)
                     }
-                    val spotlightItem = previewItem
+                    val activePreview = readyPreview ?: previewCandidate?.let { LibraryPreview(it) }
+                    val spotlightItem = activePreview?.item
                     val compactSpotlight = compact || maxHeight < 440.dp
                     val showSpotlight = !collections && items.isNotEmpty()
                     if (showSpotlight) CollectionBackdrop(previewCatalog, spotlightItem, touch,
@@ -482,7 +508,7 @@ fun WatchlistScreen(
                         ) {
                             CollectionSpotlight(previewCatalog, spotlightItem, touch, compactSpotlight, {},
                                 providerLogoUrl = activePreview?.providerLogoUrl ?: spotlightItem?.primaryNetworkLogo,
-                                clearLogoUrl = previewItem?.let { logos[watchlistLogoKey(it)] },
+                                clearLogoUrl = spotlightItem?.let { logos[watchlistLogoKey(it)] },
                                 horizontalInset = 6.dp, showBackButton = false, topInset = 16.dp)
                         }
                     }
@@ -589,12 +615,23 @@ fun WatchlistScreen(
                             Box(Modifier.padding(6.dp).testTag("library-card-frame-$index")) {
                             MediaCard(item, width = width - 12.dp, isLandscape = !poster, logoImageUrl = logos[watchlistLogoKey(item)],
                                 focusedScale = 1.025f, titleMaxLines = 1, showTitle = true,
-                                modifier = Modifier.testTag("library-card-$index"),
-                                onFocused = { focusedPreviewKey = libraryPreviewKey(item); viewModel.saveFocusState(0, index); revealCard(index, columns) },
-                                onClick = { onNavigateToDetails(item.mediaType, item.id) },
+                                modifier = Modifier.testTag("library-card-$index")
+                                    .then(if (index == returnCardIndex) Modifier.focusRequester(returnCardFocus) else Modifier),
+                                onFocused = {
+                                    focusedPreviewKey = libraryPreviewKey(item)
+                                    if (index == returnCardIndex) {
+                                        initialFocusPlaced = true
+                                        pendingCardFocus = null
+                                    }
+                                    revealCard(index, columns)
+                                },
+                                onClick = {
+                                    pendingCardFocus = libraryPreviewKey(item)
+                                    onNavigateToDetails(item.mediaType, item.id)
+                                },
                                 onLongClick = if(state.selectedSourceId == WatchlistSourceItem.MyWatchlist.id && !serverMode) ({
                                     if (touch) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    viewModel.removeFromWatchlist(item)
+                                    watchlistRemoval = item
                                 }) else null)
                             }
                         }
@@ -619,6 +656,33 @@ fun WatchlistScreen(
         }
         TextInputModal(search && !compact, tr("Search library"), initialValue = query,
             onConfirm = { query = it.trim(); search = false }, onCancel = { search = false })
+    }
+    watchlistRemoval?.let { item ->
+        val cancelFocus = remember { FocusRequester() }
+        AlertDialog(
+            onDismissRequest = { watchlistRemoval = null },
+            title = { Text(stringResource(R.string.remove_from_watchlist)) },
+            text = { Text(item.title) },
+            dismissButton = {
+                TextButton(onClick = { watchlistRemoval = null }, modifier = Modifier.focusRequester(cancelFocus)) {
+                    Text(stringResource(R.string.cancel))
+                }
+                LaunchedEffect(touch) {
+                    if (!touch) {
+                        withFrameNanos { }
+                        cancelFocus.requestFocus()
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    watchlistRemoval = null
+                    viewModel.removeFromWatchlist(item)
+                }) {
+                    Text(stringResource(R.string.remove_from_watchlist))
+                }
+            }
+        )
     }
     if(sourcesOpen) OledDrawer(tr("Sources"), { sourcesOpen = false }) {
         OledSources(scopeSources, selectedId, Modifier.fillMaxWidth(), ::selectSource, onNavigateToSettings, inDrawer = true)

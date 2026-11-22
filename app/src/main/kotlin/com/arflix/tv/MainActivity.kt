@@ -13,7 +13,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -116,8 +115,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.metrics.performance.JankStats
-import androidx.metrics.performance.PerformanceMetricsState
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -150,7 +147,6 @@ import com.arflix.tv.navigation.PartnerOpenTarget
 import com.arflix.tv.navigation.PendingPartnerOpenLink
 import com.arflix.tv.navigation.partnerOpenNavigationOptions
 import com.arflix.tv.ui.screens.login.LoginScreen
-import com.arflix.tv.ui.startup.StartupViewModel
 import com.arflix.tv.ui.theme.ArflixTvTheme
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arflix.tv.ui.theme.appBackgroundDark
@@ -224,23 +220,14 @@ class MainActivity : ComponentActivity() {
     @Inject
     internal lateinit var partnerOpenLinkResolver: Lazy<PartnerOpenLinkResolver>
 
-    // Prefetch IPTV early so the TV screen opens without a loading stall.
-    // IptvRepository is @Singleton; touching it at activity start warms the
-    // in-memory snapshot (and will trigger a disk-cache read + silent
-    // background refresh) so by the time the user navigates into the TV tab
-    // everything is already resident.
     @Inject
     lateinit var iptvRepository: Lazy<com.arflix.tv.data.repository.IptvRepository>
 
-    private var jankStats: JankStats? = null
     private var pendingLauncherRequest by mutableStateOf<LauncherContinueWatchingRequest?>(null)
     private var pendingInstallPackUrl by mutableStateOf<String?>(null)
     private var pendingInstallAddonUrl by mutableStateOf<String?>(null)
     private val partnerOpenLinks = PartnerOpenLinkInbox()
     private val pendingPartnerOpenLink get() = partnerOpenLinks.pending
-
-    // StartupViewModel for parallel loading during splash
-    private val startupViewModel: StartupViewModel by viewModels()
 
     override fun attachBaseContext(newBase: Context) {
         val tag = newBase.getSharedPreferences("app_locale", Context.MODE_PRIVATE)
@@ -271,6 +258,7 @@ class MainActivity : ComponentActivity() {
         }
 
         super.onCreate(savedInstanceState)
+        ArflixApplication.instance.startInteractiveServices()
         if (BuildConfig.PARTNER_MANAGEMENT_ENABLED) {
             lifecycleScope.launch {
                 repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
@@ -435,7 +423,6 @@ class MainActivity : ComponentActivity() {
                     oledBlackBackground = oledBlackBackground,
                     accentColorName = accentColorName
                 ) {
-                    val startupState by startupViewModel.state.collectAsStateWithLifecycle()
                     ArflixApp(
                         authRepository = authRepository.get(),
                         profileRepository = profileRepository.get(),
@@ -456,31 +443,16 @@ class MainActivity : ComponentActivity() {
                         pendingPartnerOpenLink = pendingPartnerOpenLink,
                         resolvePartnerOpenLink = { partnerOpenLinkResolver.get().resolve(it) },
                         onConsumePartnerOpenLink = partnerOpenLinks::consume,
-                        preloadedCategories = startupState.categories,
-                        preloadedHeroItem = startupState.heroItem,
-                        preloadedHeroLogoUrl = startupState.heroLogoUrl,
-                        preloadedLogoCache = startupState.logoCache,
                         onExitApp = { finish() }
                     )
                 }
             }
         }
 
-        if (BuildConfig.DEBUG) {
-            jankStats = JankStats.createAndTrack(window) { frameData ->
-                if (frameData.isJank) {
-                    val durationMs = frameData.frameDurationUiNanos / 1_000_000
-                }
-            }
-            PerformanceMetricsState.getHolderForHierarchy(window.decorView)
-                .state?.putState("screen", "Main")
-        }
-
         runAfterFirstDraw {
             lifecycleScope.launch {
                 authRepository.get().checkAuthState()
             }
-            ArflixApplication.instance.scheduleTraktSyncIfNeeded()
             lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 val repo = iptvRepository.get()
                 try {
@@ -602,8 +574,6 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        jankStats?.isTrackingEnabled = false
-        jankStats = null
         super.onDestroy()
     }
 
@@ -774,10 +744,6 @@ fun ArflixApp(
     pendingPartnerOpenLink: PendingPartnerOpenLink? = null,
     resolvePartnerOpenLink: suspend (PartnerOpenRequest) -> PartnerOpenTarget? = { null },
     onConsumePartnerOpenLink: (PendingPartnerOpenLink) -> Boolean = { false },
-    preloadedCategories: List<com.arflix.tv.data.model.Category> = emptyList(),
-    preloadedHeroItem: com.arflix.tv.data.model.MediaItem? = null,
-    preloadedHeroLogoUrl: String? = null,
-    preloadedLogoCache: Map<String, String> = emptyMap(),
     onExitApp: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -1084,10 +1050,6 @@ fun ArflixApp(
                     startDestination = startDestination,
                     navigationRailInset = if (isLandscapeRail) LANDSCAPE_RAIL_WIDTH_DP.dp + railCutoutInset else 0.dp,
                     navigationRailBottomInset = navigationInset,
-                    preloadedCategories = preloadedCategories,
-                    preloadedHeroItem = preloadedHeroItem,
-                    preloadedHeroLogoUrl = preloadedHeroLogoUrl,
-                    preloadedLogoCache = preloadedLogoCache,
                     currentProfile = activeProfile,
                     isCloudConnected = authState is AuthState.Authenticated,
                     onProfileSelected = { profileId -> selectedSessionProfileId = profileId },

@@ -15,7 +15,7 @@ import java.util.Locale
 
 internal data class SportsScheduleKey(val profileId: String?, val providerId: String,
     val sourceVersion: Long, val excludedGroups: Set<String>, val epgBackfill: Boolean, val window: Long,
-    val guideCoverage: Int = 0)
+    val hasGuide: Boolean = false)
 internal data class SportsScheduleSnapshot(val key: SportsScheduleKey, val events: List<SportsGuideEvent>)
 
 /**

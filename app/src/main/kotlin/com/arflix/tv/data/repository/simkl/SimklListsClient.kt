@@ -2,13 +2,15 @@ package com.arflix.tv.data.repository.simkl
 
 import com.google.gson.Gson
 import com.google.gson.JsonObject
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
@@ -142,7 +144,7 @@ class SimklListsClient(
     }
 
     private suspend fun request(path: String, token: String? = null, query: Map<String, String> = emptyMap(),
-        form: Map<String, String>? = null, jsonPost: Boolean = false): JsonObject = withContext(Dispatchers.IO) {
+        form: Map<String, String>? = null, jsonPost: Boolean = false): JsonObject {
         if (clientId.isBlank()) throw SimklListsException("invalid_client")
         val url = baseUrl.newBuilder().addPathSegments(path).addQueryParameter("client_id", clientId)
             .addQueryParameter("app-name", "arvio").addQueryParameter("app-version", version)
@@ -153,14 +155,27 @@ class SimklListsClient(
         if (jsonPost) builder.post("{}".toRequestBody("application/json".toMediaType()))
         val call = http.newCall(builder.build())
         if (path == "oauth2/revoke") call.timeout().timeout(5, java.util.concurrent.TimeUnit.SECONDS)
-        call.execute().use { response ->
-            if (path == "oauth2/revoke" && response.isSuccessful) return@withContext JsonObject()
+        return call.awaitBody { response ->
+            if (path == "oauth2/revoke" && response.isSuccessful) return@awaitBody JsonObject()
             val body = runCatching { gson.fromJson(response.body?.string(), JsonObject::class.java) }.getOrNull()
                 ?: throw SimklListsException("invalid_response", response.code)
             val error = body.text("error")
             if (!response.isSuccessful || error != null) throw SimklListsException(error ?: "http_${response.code}", response.code)
             body
         }
+    }
+
+    private suspend fun <T> Call.awaitBody(read: (Response) -> T): T = suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { cancel() }
+        enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                continuation.resumeWith(Result.failure(e))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                continuation.resumeWith(runCatching { response.use(read) })
+            }
+        })
     }
 
     companion object {

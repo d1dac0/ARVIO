@@ -68,6 +68,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.arflix.tv.R
+import com.arflix.tv.util.TmdbImageSizing
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.PersonDetails
@@ -112,7 +113,7 @@ fun PersonModal(
     onClose: () -> Unit = {},
     onMediaClick: (MediaType, Int) -> Unit = { _, _ -> }
 ) {
-    var focusedKnownForIndex by remember { mutableIntStateOf(0) }
+    var focusedKnownForIndex by remember(person?.id) { mutableIntStateOf(0) }
     val scrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -247,7 +248,7 @@ fun PersonModal(
                         ) {
                             if (person.profilePath != null) {
                                 AsyncImage(
-                                    model = person.profilePath,
+                                    model = person.profilePath?.let(TmdbImageSizing::forProfile),
                                     contentDescription = person.name,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -437,7 +438,7 @@ private fun MobilePersonContent(
             ) {
                 if (person.profilePath != null) {
                     AsyncImage(
-                        model = person.profilePath,
+                        model = person.profilePath?.let(TmdbImageSizing::forProfile),
                         contentDescription = person.name,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

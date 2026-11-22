@@ -3,9 +3,7 @@ package com.arflix.tv.ui.screens.home
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import com.arflix.tv.data.model.Category
 import com.arflix.tv.data.model.Episode
-import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.repository.ContinueWatchingItem
 import com.arflix.tv.util.EpisodeAvailability
@@ -65,15 +63,6 @@ internal fun observeHomeTrackingState(
             .map { prefs[longPreferencesKey(prefix + it)] }
     )
 }.distinctUntilChanged()
-
-internal fun preloadedHomeCategories(incoming: List<Category>, current: List<Category>): List<Category> {
-    val ready = (current + incoming).firstOrNull { row ->
-        row.id == "continue_watching" && row.items.isNotEmpty() && row.items.none { it.isPlaceholder }
-    }
-    val watching = ready ?: Category("continue_watching", "Continue Watching",
-        (1..5).map { MediaItem(-it, "", isPlaceholder = true) })
-    return listOf(watching) + incoming.filterNot { it.id == "continue_watching" }
-}
 
 internal fun validatedContinueWatchingEpisode(item: ContinueWatchingItem, episodes: List<Episode>?): ContinueWatchingItem? {
     if (item.mediaType != MediaType.TV || item.season == null || item.episode == null ||

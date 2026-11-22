@@ -12,7 +12,6 @@ import com.arflix.tv.util.ProfileAvatarFiles
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.MediaType.Companion.toMediaType
@@ -33,7 +32,7 @@ class ProfileAvatarImageManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val authRepository: AuthRepository
 ) {
-    private val httpClient = OkHttpClient()
+    private val httpClient by lazy { com.arflix.tv.network.OkHttpProvider.client }
 
     suspend fun importAvatar(profileId: String, uriString: String): ImportedProfileAvatar =
         withContext(Dispatchers.IO) {

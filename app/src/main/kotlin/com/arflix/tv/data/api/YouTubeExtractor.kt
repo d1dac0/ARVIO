@@ -12,7 +12,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import okhttp3.Headers
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URL
@@ -180,13 +179,15 @@ private val CLIENTS = listOf(
 class InAppYouTubeExtractor @Inject constructor() {
     private val gson = Gson()
 
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .build()
+    private val httpClient by lazy {
+        com.arflix.tv.network.OkHttpProvider.playbackClient.newBuilder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(20, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
+    }
 
     // Result cache: videoId -> (source, fetchedAtMs). Cleared on error so stale 403 URLs don't stick.
     private val urlCache = ConcurrentHashMap<String, Pair<TrailerPlaybackSource, Long>>()

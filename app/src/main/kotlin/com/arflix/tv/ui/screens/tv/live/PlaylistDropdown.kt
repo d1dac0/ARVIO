@@ -54,7 +54,7 @@ internal fun PlaylistDropdown(providers: List<TvProviderFilter>, selectedId: Str
             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         Icon(Icons.Outlined.ExpandMore, null, tint = LiveColors.FgDim, modifier = Modifier.size(18.dp))
     }
-    if (open) Dialog(onDismissRequest = { open = false; requester.requestFocus() }) {
+    if (open) Dialog(onDismissRequest = { open = false; runCatching { requester.requestFocus() } }) {
         val scrollState = rememberScrollState()
         val initialFocus = remember { FocusRequester() }
         val initialBringIntoView = remember { BringIntoViewRequester() }
@@ -66,7 +66,7 @@ internal fun PlaylistDropdown(providers: List<TvProviderFilter>, selectedId: Str
             // the scroll position to the first row.
             snapshotFlow { initialRowPlaced && windowInfo.isWindowFocused }.first { it }
             withFrameNanos { }
-            initialFocus.requestFocus()
+            runCatching { initialFocus.requestFocus() }
             initialBringIntoView.bringIntoView()
         }
         // This bounded list has at most 10 playlists + 10 portals. Keeping its light
@@ -83,7 +83,7 @@ internal fun PlaylistDropdown(providers: List<TvProviderFilter>, selectedId: Str
                             .onGloballyPositioned { initialRowPlaced = true } else Modifier)
                         .onFocusChanged { itemFocused = it.isFocused }
                         .border(2.dp, if (itemFocused) LiveColors.Fg else androidx.compose.ui.graphics.Color.Transparent)
-                        .clickable { open = false; onSelect(provider.id); requester.requestFocus() }
+                        .clickable { open = false; onSelect(provider.id); runCatching { requester.requestFocus() } }
                         .padding(14.dp))
             } }
         }

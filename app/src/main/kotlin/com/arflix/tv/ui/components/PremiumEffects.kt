@@ -9,7 +9,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
@@ -173,59 +172,6 @@ fun FloatingParticles(
 }
 
 // ============================================
-// PULSING GLOW EFFECT
-// ============================================
-
-@Composable
-fun PulsingGlow(
-    modifier: Modifier = Modifier,
-    color: Color = Cyan,
-    pulseScale: Float = 1.3f,
-    content: @Composable BoxScope.() -> Unit
-) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = pulseScale,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = EaseInOutCubic),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseScale"
-    )
-
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.6f,
-        targetValue = 0.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = EaseInOutCubic),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseAlpha"
-    )
-
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        // Glow layer
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .scale(scale)
-                .blur(30.dp)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            color.copy(alpha = alpha),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-        content()
-    }
-}
-
-// ============================================
 // WAVE LOADING DOTS
 // ============================================
 
@@ -340,57 +286,6 @@ fun GradientSweepLine(
                     RoundedCornerShape(height / 2)
                 )
         )
-    }
-}
-
-// ============================================
-// GLASSMORPHIC CARD
-// ============================================
-
-@Composable
-fun GlassmorphicCard(
-    modifier: Modifier = Modifier,
-    hasBorder: Boolean = true,
-    borderGradient: Boolean = false,
-    content: @Composable BoxScope.() -> Unit
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .then(
-                if (hasBorder) {
-                    if (borderGradient) {
-                        Modifier.background(
-                            Brush.linearGradient(
-                                colors = listOf(PurpleDark.copy(alpha = 0.3f), Purple.copy(alpha = 0.3f), PurpleLight.copy(alpha = 0.3f))
-                            ),
-                            RoundedCornerShape(16.dp)
-                        )
-                    } else {
-                        Modifier.background(BorderLight, RoundedCornerShape(16.dp))
-                    }
-                } else Modifier
-            )
-            .padding(1.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(BackgroundGlass)
-            .blur(0.5.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.05f),
-                            Color.Transparent
-                        ),
-                        startY = 0f,
-                        endY = 200f
-                    )
-                )
-        )
-        content()
     }
 }
 

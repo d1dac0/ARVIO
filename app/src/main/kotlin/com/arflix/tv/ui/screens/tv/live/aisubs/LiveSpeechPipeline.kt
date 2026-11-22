@@ -56,6 +56,10 @@ internal class LiveSpeechPipeline(
     /** Capture only while AI subtitles are on for the channel and it is playing fullscreen. */
     @Volatile
     var active: Boolean = false
+        set(value) {
+            field = value
+            if (value) startLoadingWeights()
+        }
 
     // Where playback is, from the UI thread; extrapolated on other threads.
     @Volatile private var positionUs = UNKNOWN
@@ -74,7 +78,10 @@ internal class LiveSpeechPipeline(
     @Volatile var segmentsEmitted: Int = 0
         private set
 
-    init {
+    private val weightsLoading = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private fun startLoadingWeights() {
+        if (!weightsLoading.compareAndSet(false, true)) return
         Thread({
             weights = runCatching {
                 appContext.resources.openRawResource(R.raw.silero_vad_v5_16k).use { SileroVadWeights.read(it) }

@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import com.google.zxing.BarcodeFormat
+import com.google.zxing.common.BitMatrix
 import com.google.zxing.qrcode.QRCodeWriter
 
 object QrCodeGenerator {
@@ -31,21 +32,13 @@ object QrCodeGenerator {
             style = Paint.Style.FILL
         }
 
-        var moduleSize = 1
-        for (x in 0 until size) {
-            if (bitMatrix[x, 0] != bitMatrix[0, 0]) {
-                moduleSize = x
-                break
-            }
-        }
-        if (moduleSize < 1) moduleSize = 1
-
+        val (left, top, width, height) = bitMatrix.enclosingRectangle
+        val moduleSize = moduleSize(bitMatrix, left, top)
         val moduleRadius = moduleSize * 0.3f
-
-        var x = 0
-        while (x < size) {
-            var y = 0
-            while (y < size) {
+        var x = left
+        while (x < left + width) {
+            var y = top
+            while (y < top + height) {
                 if (bitMatrix[x, y]) {
                     val rect = RectF(
                         x.toFloat(), y.toFloat(),
@@ -68,5 +61,12 @@ object QrCodeGenerator {
         outputCanvas.drawBitmap(bitmap, 0f, 0f, null)
 
         return output
+    }
+
+    // The top-left finder pattern starts with a run of seven black modules.
+    internal fun moduleSize(matrix: BitMatrix, left: Int, top: Int): Int {
+        var end = left
+        while (end < matrix.width && matrix[end, top]) end++
+        return ((end - left) / 7).coerceAtLeast(1)
     }
 }

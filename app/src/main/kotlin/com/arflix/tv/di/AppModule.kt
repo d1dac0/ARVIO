@@ -24,6 +24,7 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
+    private val gsonConverter = GsonConverterFactory.create()
     private val simklRateLimiter = com.arflix.tv.network.sharedSimklRateLimiter
 
     @Provides
@@ -67,7 +68,7 @@ object AppModule {
         return Retrofit.Builder()
             .baseUrl(Constants.TMDB_BASE_URL)
             .client(tmdbClient)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(gsonConverter)
             .build()
             .create(TmdbApi::class.java)
     }
@@ -81,7 +82,7 @@ object AppModule {
             .client(okHttpClient.newBuilder()
                 .addInterceptor(com.arflix.tv.network.TraktAvailabilityInterceptor())
                 .build())
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(gsonConverter)
             .build()
             .create(TraktApi::class.java)
     }
@@ -99,7 +100,7 @@ object AppModule {
         return Retrofit.Builder()
             .baseUrl(Constants.TRAKT_API_URL)
             .client(client)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(gsonConverter)
             .build()
             .create(TraktApi::class.java)
     }
@@ -111,7 +112,7 @@ object AppModule {
         return Retrofit.Builder()
             .baseUrl(Constants.MDBLIST_API_URL)
             .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(gsonConverter)
             .build()
             .create(com.arflix.tv.data.api.MdbListApi::class.java)
     }
@@ -125,19 +126,6 @@ object AppModule {
         @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context
     ): com.arflix.tv.data.api.SimklApi {
         val simklClient = okHttpClient.newBuilder()
-            .addInterceptor { chain ->
-                val original = chain.request()
-                val token = original.header("Authorization")?.removePrefix("Bearer ")
-                if (token?.startsWith("simkl_at_") != true) return@addInterceptor chain.proceed(original)
-                val profile = simklV2.profileId()
-                val connection = simklV2.connectionId()
-                val ownsToken = simklV2.ownsAccessToken(token)
-                val response = chain.proceed(original)
-                if (response.code != 401 || !ownsToken) return@addInterceptor response
-                response.close()
-                val refreshed = kotlinx.coroutines.runBlocking { simklV2.refreshRejectedToken(token, profile, connection) }
-                chain.proceed(original.newBuilder().header("Authorization", "Bearer $refreshed").build())
-            }
             .addInterceptor { chain ->
                 val original = chain.request()
 
@@ -176,12 +164,13 @@ object AppModule {
             .addInterceptor(simklRateLimiter)
             .build()
 
-        return Retrofit.Builder()
+        val api = Retrofit.Builder()
             .baseUrl(Constants.SIMKL_BASE_URL)
             .client(simklClient)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(gsonConverter)
             .build()
             .create(com.arflix.tv.data.api.SimklApi::class.java)
+        return com.arflix.tv.data.repository.simkl.RefreshingSimklApi(api, simklV2)
     }
 
     @Provides
@@ -196,7 +185,7 @@ object AppModule {
         return Retrofit.Builder()
             .baseUrl(Constants.SUPABASE_URL + "/")
             .client(noCacheClient)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(gsonConverter)
             .build()
             .create(SupabaseApi::class.java)
     }
@@ -209,7 +198,7 @@ object AppModule {
         return Retrofit.Builder()
             .baseUrl("https://api.themoviedb.org/")
             .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(gsonConverter)
             .build()
             .create(StreamApi::class.java)
     }
@@ -224,7 +213,7 @@ object AppModule {
         return Retrofit.Builder()
             .baseUrl("https://api.introdb.app/")
             .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(gsonConverter)
             .build()
     }
 
@@ -243,7 +232,7 @@ object AppModule {
         return Retrofit.Builder()
             .baseUrl("https://api.aniskip.com/v2/")
             .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(gsonConverter)
             .build()
     }
 
@@ -262,7 +251,7 @@ object AppModule {
         return Retrofit.Builder()
             .baseUrl("https://arm.haglund.dev/api/v2/")
             .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(gsonConverter)
             .build()
     }
 
@@ -281,7 +270,7 @@ object AppModule {
         return Retrofit.Builder()
             .baseUrl("https://api.jikan.moe/v4/")
             .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(gsonConverter)
             .build()
     }
 

@@ -67,8 +67,6 @@ import org.xml.sax.helpers.DefaultHandler
 import java.io.BufferedInputStream
 import java.io.BufferedReader
 import java.io.BufferedOutputStream
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.FileInputStream
 import java.io.FilterInputStream
 import java.io.InputStream
@@ -736,6 +734,8 @@ class IptvRepository @Inject constructor(
     fun isGroupOrderLocallyDirty(): Boolean = groupOrderLocallyDirty
 
     @Volatile
+    private var startupGuideOnly = false
+    @Volatile
     private var cachedNowNext: ConcurrentHashMap<String, IptvNowNext> = ConcurrentHashMap()
     private val emptyShortEpgCooldownUntil = ConcurrentHashMap<String, Long>()
     private val visibleXmlEpgCooldownUntil = ConcurrentHashMap<String, Long>()
@@ -1008,10 +1008,8 @@ class IptvRepository @Inject constructor(
      */
     private suspend fun fetchStalkerChannels(portal: StalkerPortalEntry): StalkerPortalChannels =
         runCatching {
-            val stalker = com.arflix.tv.data.api.StalkerApi(portal.portalUrl, portal.macAddress)
-            if (!stalker.handshake()) {
-                return@runCatching StalkerPortalChannels(portal.id, null, emptyList())
-            }
+            val stalker = getOrCreateStalkerApi(portal)
+                ?: return@runCatching StalkerPortalChannels(portal.id, null, emptyList())
             stalker.getProfile()
             val channels = stalker.getChannels().map { it.copy(id = "stalker:${portal.id}:${it.id}") }
             // Asked here, not from the settings screen. A portal keeps an idle
@@ -1091,6 +1089,7 @@ class IptvRepository @Inject constructor(
         // Xtream EPG feeds. TX-4K serves a ~100 MB XMLTV dump so the read
         // and call timeouts need to be minutes, not seconds.
         okHttpClient.newBuilder()
+            .cache(null)
             .withIptvProviderRequestGuard()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(180, TimeUnit.SECONDS)
@@ -1101,6 +1100,7 @@ class IptvRepository @Inject constructor(
     private val xtreamLookupHttpClient: OkHttpClient by lazy {
         // Fast-fail client for VOD/source lookups - must be quick for instant playback
         okHttpClient.newBuilder()
+            .cache(null)
             .withIptvProviderRequestGuard()
             .connectTimeout(6, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
@@ -1111,6 +1111,7 @@ class IptvRepository @Inject constructor(
     /** A panel's bad answer about the account must not defer the stream that is about to play. */
     private val xtreamAccountCheckHttpClient: OkHttpClient by lazy {
         okHttpClient.newBuilder()
+            .cache(null)
             .withIptvAccountCheckGuard()
             .connectTimeout(6, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
@@ -1120,6 +1121,7 @@ class IptvRepository @Inject constructor(
     }
     private val xtreamGuideHttpClient: OkHttpClient by lazy {
         okHttpClient.newBuilder()
+            .cache(null)
             .withIptvProviderRequestGuard()
             .connectTimeout(3, TimeUnit.SECONDS)
             .readTimeout(5, TimeUnit.SECONDS)
@@ -1132,6 +1134,7 @@ class IptvRepository @Inject constructor(
         // short now/next EPG. Keep short EPG snappy, but give catchup history
         // enough time on slower TV boxes and large providers.
         okHttpClient.newBuilder()
+            .cache(null)
             .withIptvProviderRequestGuard()
             .connectTimeout(8, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
@@ -1143,6 +1146,7 @@ class IptvRepository @Inject constructor(
         // Live catalog payloads can be very large (50k+ streams), so keep them
         // below XMLTV timeouts but long enough to finish on TV WiFi.
         okHttpClient.newBuilder()
+            .cache(null)
             .withIptvProviderRequestGuard()
             .connectTimeout(12, TimeUnit.SECONDS)
             .readTimeout(90, TimeUnit.SECONDS)
@@ -3120,28 +3124,13 @@ class IptvRepository @Inject constructor(
             }
 
             val cachedChannelsFromDisk = if (cachedChannels.isEmpty()) readChannelCache(config) else null
-            val cachedChannelsAreLarge = cachedChannelsFromDisk?.let { cached ->
-                isLargePersistedChannelSnapshot(config, cached.channels.size)
-            } ?: false
-            val cachedGuideFromDisk = if (cachedChannelsFromDisk != null && !cachedChannelsAreLarge) {
-                readCache(config)
-            } else {
-                null
-            }
             if (cachedChannelsFromDisk != null) {
                 cachedChannels = cachedChannelsFromDisk.channels
-                cachedGroupedChannels = buildGroupedChannels(cachedChannelsFromDisk.channels)
-                cachedNowNext = ConcurrentHashMap(cachedGuideFromDisk?.nowNext.orEmpty())
+                cachedGroupedChannels = buildGroupedChannels(cachedChannels)
                 cachedPlaylistAt = cachedChannelsFromDisk.loadedAtEpochMs
-                cachedEpgAt = cachedGuideFromDisk?.loadedAtEpochMs ?: cachedChannelsFromDisk.loadedAtEpochMs
-                if (!cachedChannelsAreLarge) {
-                    reDeriveCachedNowNext(cachedChannelsFromDisk.channels.asSequence().map { it.id }.toSet())
-                } else {
-                    System.err.println(
-                        "[EPG-Memory] large playlist warm start uses indexed guide only; " +
-                            "window=${cachedChannelsFromDisk.channels.size}"
-                    )
-                }
+            }
+            if ((startupGuideOnly || cachedChannelsFromDisk != null) && cachedChannels.isNotEmpty()) {
+                restoreCachedGuideForLiveTv(config)
             }
 
             var playlistChanged = false
@@ -3718,39 +3707,59 @@ class IptvRepository @Inject constructor(
                 if (cachedChannels.isNotEmpty()) return@withLock
 
                 val cached = readChannelCache(config) ?: return@withLock
-                cachedChannels = cached.channels
-                cachedGroupedChannels = buildGroupedChannels(cached.channels)
-                cachedPlaylistAt = cached.loadedAtEpochMs
-                val cachedChannelsAreLarge = isLargePersistedChannelSnapshot(config, cached.channels.size)
-                val guideCache = if (!cachedChannelsAreLarge) {
-                    readCache(config)
-                        ?.takeIf { it.nowNext.isNotEmpty() && hasAnyProgramData(it.nowNext) }
-                } else {
-                    null
-                }
-                if (guideCache != null) {
-                    cachedNowNext = ConcurrentHashMap(guideCache.nowNext)
-                    cachedEpgAt = guideCache.loadedAtEpochMs
-                    persistEpgIndexChannels(config, guideCache.nowNext, cachedEpgAt)
-                    val indexedChannels = countIndexedGuideChannels()
-                    val indexedPrograms = countIndexedGuidePrograms()
-                    AppLogger.d(
-                        "EPG",
-                        "Warm cache loaded ${guideCache.nowNext.size} guide channels from disk; " +
-                            "index=$indexedChannels channels/$indexedPrograms programs"
-                    )
-                } else {
-                    cachedNowNext = ConcurrentHashMap()
-                    cachedEpgAt = cached.loadedAtEpochMs
-                    if (cachedChannelsAreLarge) {
-                        AppLogger.d(
-                            "EPG-Memory",
-                            "warm cache skipped full guide hydration; window=${cached.channels.size}"
-                        )
-                    }
-                }
+                hydrateStartupCache(config, cached)
             }
         }
+    }
+
+    /** Import legacy guide data on Live TV entry, after the startup channel window is visible. */
+    suspend fun restoreCachedGuideForLiveTv() = withContext(Dispatchers.IO) {
+        loadMutex.withLock {
+            val config = observeConfig().first()
+            ensureCacheOwnership(profileManager.getProfileIdSync(), config)
+            if (startupGuideOnly && cachedChannels.isNotEmpty()) restoreCachedGuideForLiveTv(config)
+        }
+    }
+
+    private fun restoreCachedGuideForLiveTv(config: IptvConfig) {
+        if (!isLargePersistedChannelSnapshot(config, cachedChannels.size) && countIndexedGuideChannels() == 0) {
+            readCache(config)?.let { guide ->
+                cachedNowNext.putAll(guide.nowNext)
+                cachedEpgAt = maxOf(cachedEpgAt, guide.loadedAtEpochMs)
+                persistEpgIndexChannels(config, guide.nowNext, guide.loadedAtEpochMs)
+            }
+        } else {
+            restoreDiscoveredEpgUrlsFromCache(config)
+            val indexedRefreshAt = runCatching { epgIndex.fullRefreshAtMs(currentEpgIndexKey(config)) }
+                .getOrDefault(0L)
+            cachedEpgAt = maxOf(cachedEpgAt, indexedRefreshAt)
+        }
+        startupGuideOnly = false
+    }
+
+    private suspend fun hydrateStartupCache(config: IptvConfig, cached: IptvChannelCachePayload) {
+        val indexKey = currentEpgIndexKey(config)
+        val indexedCount = runCatching { channelStore.count(indexKey) }.getOrDefault(0)
+        val channels = if (indexedCount > LargeIptvListChannelCount) {
+            cached.channels.take(LargeListMemoryChannelLimit)
+        } else {
+            cached.channels
+        }
+        if (indexedCount <= LargeIptvListChannelCount) {
+            val favorites = observeFavoriteChannels().first().asSequence().take(LargeListMemoryFavoriteGuideLimit)
+            val guideIds = (favorites + channels.asSequence().map { it.id })
+                .distinct().take(LargeListMemoryGuideLimit).toSet()
+            val guide = runCatching {
+                epgIndex.loadNowNext(indexKey, guideIds, pastWindowMs = 0L)
+            }.getOrDefault(emptyMap())
+            cachedNowNext = ConcurrentHashMap(guide.mapValues { (_, value) ->
+                IptvNowNext(now = value.now, next = value.next)
+            })
+        }
+        cachedPlaylistAt = cached.loadedAtEpochMs
+        cachedGroupedChannels = buildGroupedChannels(channels)
+        startupGuideOnly = true
+        cachedChannels = channels
     }
 
     /**
@@ -3777,23 +3786,7 @@ class IptvRepository @Inject constructor(
 
                 if (cachedChannels.isEmpty()) {
                     val cached = readChannelCache(config) ?: return@withLock null
-                    val cachedChannelsAreLarge = isLargePersistedChannelSnapshot(config, cached.channels.size)
-                    val guideCache = if (!cachedChannelsAreLarge) {
-                        readCache(config)
-                    } else {
-                        null
-                    }
-                    cachedChannels = cached.channels
-                    cachedGroupedChannels = buildGroupedChannels(cached.channels)
-                    cachedNowNext = ConcurrentHashMap(guideCache?.nowNext.orEmpty())
-                    cachedPlaylistAt = cached.loadedAtEpochMs
-                    cachedEpgAt = guideCache?.loadedAtEpochMs ?: cached.loadedAtEpochMs
-                    if (cachedChannelsAreLarge) {
-                        AppLogger.d(
-                            "EPG-Memory",
-                            "cached snapshot skipped full guide hydration; window=${cached.channels.size}"
-                        )
-                    }
+                    hydrateStartupCache(config, cached)
                 }
 
                 val favoriteGroups = observeFavoriteGroups().first()
@@ -4497,18 +4490,6 @@ class IptvRepository @Inject constructor(
         return runCatching { channelStore.loadAll(key) }.getOrNull()?.takeIf { it.isNotEmpty() }
     }
 
-    private fun persistCurrentCacheSnapshot(config: IptvConfig, loadedAtMs: Long = System.currentTimeMillis()) {
-        val channels = cachedChannels
-        if (channels.isEmpty()) return
-        val nowNext = cachedNowNext
-        writeCache(
-            config = config,
-            channels = channels,
-            nowNext = nowNext,
-            loadedAtMs = loadedAtMs.coerceAtLeast(cachedPlaylistAt.coerceAtLeast(loadedAtMs))
-        )
-    }
-
     private fun persistEpgIndexAll(
         config: IptvConfig,
         nowNext: Map<String, IptvNowNext>,
@@ -4614,23 +4595,41 @@ class IptvRepository @Inject constructor(
         return if (merged.isNotEmpty()) merged to stalkerApis else null
     }
 
-    private suspend fun storeStartupChannels(
+    internal suspend fun storeStartupChannels(
+        profileId: String,
         config: IptvConfig,
         channels: List<IptvChannel>,
         stalkerApis: Map<String, com.arflix.tv.data.api.StalkerApi>
     ) {
         loadMutex.withLock {
-            cachedChannels = channels
-            cachedGroupedChannels = buildGroupedChannels(channels)
-            cachedPlaylistAt = System.currentTimeMillis()
+            val currentConfig = observeConfig().first()
+            if (profileManager.getProfileIdSync() != profileId ||
+                buildSourceSignature(currentConfig) != buildSourceSignature(config)
+            ) return@withLock
+            ensureCacheOwnership(profileId, config)
+            if (cachedChannels.isNotEmpty()) return@withLock
+            val loadedAt = System.currentTimeMillis()
+            val nowNext = cachedNowNext
+            if (nowNext.isNotEmpty()) {
+                val validIds = channels.asSequence().map { it.id }.toSet()
+                nowNext.keys.retainAll(validIds)
+            }
+            writeCache(config, channels, nowNext, loadedAt)
+            val isLargePlaylist = channels.size > LargeIptvListChannelCount
+            if (isLargePlaylist && pagedChannelStoreCount() < channels.size) return@withLock
+
+            val retainedChannels = if (isLargePlaylist) channels.take(LargeListMemoryChannelLimit) else channels
+            if (isLargePlaylist) {
+                cachedNowNext = ConcurrentHashMap(retainGuideForMemory(retainedChannels, nowNext, emptyList()))
+            }
+            cachedPlaylistAt = loadedAt
+            cachedGroupedChannels = buildGroupedChannels(retainedChannels)
+            cachedChannelsLookupSource = null
+            cachedChannelsById = emptyMap()
+            cachedChannels = retainedChannels
             if (stalkerApis.isNotEmpty()) {
                 cachedStalkerApis = stalkerApis
             }
-            val validIds = channels.asSequence().map { it.id }.toSet()
-            if (cachedNowNext.isNotEmpty()) {
-                cachedNowNext.keys.retainAll(validIds)
-            }
-            persistCurrentCacheSnapshot(config, cachedPlaylistAt)
         }
     }
 
@@ -4638,6 +4637,7 @@ class IptvRepository @Inject constructor(
         if (!startupPrefetchInFlight.compareAndSet(false, true)) return
         try {
             warmupFromCacheOnly()
+            val profileId = profileManager.getProfileIdSync()
             val config = observeConfig().first()
             if (!hasAnyConfiguredSource(config)) return
 
@@ -4647,7 +4647,7 @@ class IptvRepository @Inject constructor(
                     fetchFreshChannelsForStartup(config)
                 }
                 if (fresh != null) {
-                    storeStartupChannels(config, fresh.first, fresh.second)
+                    storeStartupChannels(profileId, config, fresh.first, fresh.second)
                 }
                 return
             }
@@ -4671,6 +4671,7 @@ class IptvRepository @Inject constructor(
         cachedChannelsById = emptyMap()
         cachedGroupedChannels = emptyMap()
         cachedNowNext = ConcurrentHashMap()
+        startupGuideOnly = false
         cachedPlaylistAt = 0L
         cachedEpgAt = 0L
         stalkerEpgCache.clear()
@@ -7051,8 +7052,7 @@ class IptvRepository @Inject constructor(
         kind: StalkerCatalogKind,
         fetchCategories: suspend (StalkerPortalEntry, StalkerCatalogKind) ->
             List<com.arflix.tv.data.api.StalkerApi.StalkerCategory>? = { entry, requestedKind ->
-                val api = com.arflix.tv.data.api.StalkerApi(entry.portalUrl, entry.macAddress)
-                if (!api.handshake()) null else {
+                getOrCreateStalkerApi(entry)?.let { api ->
                     api.getProfile()
                     when (requestedKind) {
                         StalkerCatalogKind.MOVIES -> api.getVodCategories()
@@ -12086,7 +12086,7 @@ class IptvRepository @Inject constructor(
                         .distinct()
                         .toList()
                 )
-                cacheFile().writeBytes(gzipBytes(gson.toJson(metadataOnly)))
+                writeCompressedCache(cacheFile(), metadataOnly)
                 return@runCatching
             }
 
@@ -12130,10 +12130,8 @@ class IptvRepository @Inject constructor(
                     .distinct()
                     .toList()
             )
-            val compressed = gzipBytes(gson.toJson(payload))
-            if (compressed.size <= MAX_IPTV_CACHE_BYTES) {
-                cacheFile().writeBytes(compressed)
-            } else {
+            val file = cacheFile()
+            if (!writeCompressedCache(file, payload)) {
                 val reducedPayload = payload.copy(
                     nowNext = compactNowNext.mapValues { (channelId, value) ->
                         val keepCatchupRecent = if (effectiveCatchupDays(channelsById[channelId]) > 0) {
@@ -12148,12 +12146,9 @@ class IptvRepository @Inject constructor(
                         )
                     }
                 )
-                val reduced = gzipBytes(gson.toJson(reducedPayload))
-                if (reduced.size <= MAX_IPTV_CACHE_BYTES) {
-                    cacheFile().writeBytes(reduced)
-                } else {
+                if (!writeCompressedCache(file, reducedPayload)) {
                     // Final fallback: keep a fast warm-start playlist even if the guide slice is too large.
-                    cacheFile().writeBytes(gzipBytes(gson.toJson(payload.copy(nowNext = emptyMap()))))
+                    writeCompressedCache(file, payload.copy(nowNext = emptyMap()))
                 }
             }
         }
@@ -12167,9 +12162,9 @@ class IptvRepository @Inject constructor(
                 runCatching { file.delete() }
                 return null
             }
-            val text = decodeCacheText(file.readBytes())
-            if (text.isBlank()) return null
-            val payload = gson.fromJson(text, IptvCachePayload::class.java) ?: return null
+            val payload = cacheJsonReader(file).use { reader ->
+                gson.fromJson<IptvCachePayload>(reader, IptvCachePayload::class.java)
+            } ?: return null
             if (!isValidCacheSignature(config, payload.configSignature, payload.sourceSignature)) return null
             // The playlist's own guide address must come back even when no guide has been
             // stored yet: without it the guide never loads, so nowNext would stay empty forever.
@@ -12224,9 +12219,9 @@ class IptvRepository @Inject constructor(
                 runCatching { file.delete() }
                 return null
             }
-            val text = decodeCacheText(file.readBytes())
-            if (text.isBlank()) return null
-            val payload = gson.fromJson(text, IptvChannelCachePayload::class.java) ?: return null
+            val payload = cacheJsonReader(file).use { reader ->
+                gson.fromJson<IptvChannelCachePayload>(reader, IptvChannelCachePayload::class.java)
+            } ?: return null
             payload.copy(channels = sanitizeCachedChannels(payload.channels))
                 .takeIf { isValidCacheSignature(config, it.configSignature, it.sourceSignature) && it.channels.isNotEmpty() }
                 ?.also { rememberDiscoveredEpgUrls(it.discoveredEpgUrls) }
@@ -12278,7 +12273,7 @@ class IptvRepository @Inject constructor(
             ).takeIf { isValidCacheSignature(config, it.configSignature, it.sourceSignature) && it.channels.isNotEmpty() }
                 ?.also {
                     rememberDiscoveredEpgUrls(it.discoveredEpgUrls)
-                    channelCacheFile().writeBytes(gzipBytes(gson.toJson(it)))
+                    writeCompressedCache(channelCacheFile(), it)
                 }
         }.getOrNull()
     }
@@ -12300,14 +12295,18 @@ class IptvRepository @Inject constructor(
     }
 
     private fun cacheJsonReader(file: File): JsonReader {
-        val input = FileInputStream(file)
-        val stream = BufferedInputStream(input, 64 * 1024)
-        stream.mark(2)
-        val b1 = stream.read()
-        val b2 = stream.read()
-        stream.reset()
-        val source = if (b1 == 0x1f && b2 == 0x8b) GZIPInputStream(stream) else stream
-        return JsonReader(InputStreamReader(source, StandardCharsets.UTF_8))
+        val stream = BufferedInputStream(FileInputStream(file), 64 * 1024)
+        try {
+            stream.mark(2)
+            val b1 = stream.read()
+            val b2 = stream.read()
+            stream.reset()
+            val source = if (b1 == 0x1f && b2 == 0x8b) GZIPInputStream(stream) else stream
+            return JsonReader(InputStreamReader(source, StandardCharsets.UTF_8))
+        } catch (error: IOException) {
+            stream.close()
+            throw error
+        }
     }
 
     private fun isValidCacheSignature(config: IptvConfig, cacheSignature: String, cacheSourceSignature: String): Boolean {
@@ -12340,25 +12339,21 @@ class IptvRepository @Inject constructor(
             endUtcMillis = endUtcMillis
         )
 
-    private fun gzipBytes(text: String): ByteArray {
-        val output = ByteArrayOutputStream()
-        GZIPOutputStream(output).bufferedWriter(StandardCharsets.UTF_8).use { writer ->
-            writer.write(text)
-        }
-        return output.toByteArray()
-    }
-
-    private fun decodeCacheText(bytes: ByteArray): String {
-        if (bytes.isEmpty()) return ""
-        val isGzip = bytes.size >= 2 &&
-            bytes[0] == 0x1f.toByte() &&
-            bytes[1] == 0x8b.toByte()
-        return if (isGzip) {
-            GZIPInputStream(ByteArrayInputStream(bytes))
-                .bufferedReader(StandardCharsets.UTF_8)
-                .use { it.readText() }
-        } else {
-            bytes.toString(StandardCharsets.UTF_8)
+    private fun writeCompressedCache(file: File, payload: Any): Boolean {
+        val tempFile = File.createTempFile(file.name, ".tmp", file.parentFile)
+        try {
+            tempFile.outputStream().use { output ->
+                GZIPOutputStream(output.buffered()).writer(StandardCharsets.UTF_8).use { writer ->
+                    gson.newJsonWriter(writer).use { json ->
+                        gson.toJson(payload, payload.javaClass, json)
+                    }
+                }
+            }
+            if (tempFile.length() > MAX_IPTV_CACHE_BYTES) return false
+            if (!tempFile.renameTo(file)) throw IOException("Could not replace IPTV cache")
+            return true
+        } finally {
+            tempFile.delete()
         }
     }
 

@@ -202,7 +202,6 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -567,8 +566,7 @@ private data class HomeHeroPlaybackHandles(
 )
 
 private fun createHomeHeroPlaybackHandles(context: Context): HomeHeroPlaybackHandles {
-    val heroOkHttp = OkHttpClient.Builder()
-        .connectionPool(ConnectionPool(2, 2, TimeUnit.MINUTES))
+    val heroOkHttp = OkHttpProvider.playbackClient.newBuilder()
         .followRedirects(true)
         .followSslRedirects(true)
         .retryOnConnectionFailure(true)
@@ -724,7 +722,7 @@ private fun HomeBackdropCrossfade(
 
     fun buildBackdropRequest(url: String): ImageRequest {
         val imageUrl = TmdbImageSizing.forSlot(
-            url, backdropWidthPx, backdropHeightPx, TmdbImageSizing.Kind.BACKDROP
+            url, backdropWidthPx, backdropHeightPx, TmdbImageSizing.Kind.BACKDROP, maxUpscale = 1.6f
         )
         val cacheKey = "$imageUrl|${backdropWidthPx}x$backdropHeightPx"
         return ImageRequest.Builder(context)
@@ -783,10 +781,6 @@ private fun HomeBackdropCrossfade(
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
-    preloadedCategories: List<Category> = emptyList(),
-    preloadedHeroItem: MediaItem? = null,
-    preloadedHeroLogoUrl: String? = null,
-    preloadedLogoCache: Map<String, String> = emptyMap(),
     currentProfile: com.arflix.tv.data.model.Profile? = null,
     onNavigateToDetails: (MediaType, Int, Int?, Int?, Boolean) -> Unit = { _, _, _, _, _ -> },
     onNavigateToCollection: (String) -> Unit = {},
@@ -801,23 +795,21 @@ fun HomeScreen(
 ) {
     val isMobile = LocalDeviceType.current.isTouchDevice()
 
-    // Use preloaded data from StartupViewModel if available
-    LaunchedEffect(preloadedCategories, preloadedHeroItem, preloadedHeroLogoUrl, preloadedLogoCache) {
-        if (preloadedCategories.isNotEmpty()) {
-            viewModel.setPreloadedData(
-                categories = preloadedCategories,
-                heroItem = preloadedHeroItem,
-                heroLogoUrl = preloadedHeroLogoUrl,
-                logoCache = preloadedLogoCache
-            )
-        }
-    }
     // Lifecycle-aware: stops collecting when HomeScreen is off-screen so the
     // ViewModel's TMDB/Trakt refresh pushes don't drive recompositions behind
     // an invisible UI.
     val rawUiState by viewModel.uiState.collectAsStateWithLifecycle()
     val rawHomeWatchlistItems by viewModel.homeWatchlistItems.collectAsStateWithLifecycle()
-    val kidsFilterState by viewModel.kidsFilterState.collectAsStateWithLifecycle()
+    val observedKidsFilter by viewModel.kidsFilterState.collectAsStateWithLifecycle()
+    val kidsFilterState = remember(observedKidsFilter, currentProfile) {
+        if (currentProfile?.kidsLevel != null &&
+            (observedKidsFilter.profileId != currentProfile.id || observedKidsFilter.level != currentProfile.kidsLevel)
+        ) {
+            observedKidsFilter.copy(isPolicyLoading = true)
+        } else {
+            observedKidsFilter
+        }
+    }
     // A kids profile sees Home age-filtered; any other profile gets the state unchanged.
     val uiState = remember(rawUiState, kidsFilterState) {
         viewModel.applyKidsFilter(rawUiState, kidsFilterState)
@@ -871,12 +863,6 @@ fun HomeScreen(
                 // Catalog rows: no-op unless they have gone stale (6h). Home now survives
                 // navigation, so nothing else would re-fetch them in a long session.
                 viewModel.refreshHomeDataIfStale()
-                // Pull the full cloud state (addons, catalogs, settings) on resume.
-                // This catches any changes pushed by another device while this one
-                // was backgrounded — the WebSocket may have been killed by Android,
-                // so we can't rely on realtime alone. Throttled internally to avoid
-                // redundant pulls on rapid activity transitions.
-                viewModel.pullCloudStateOnResume()
                 suppressSelectUntilMs = SystemClock.elapsedRealtime() + 150L
             }
         }
@@ -886,22 +872,16 @@ fun HomeScreen(
         }
     }
 
-    // The startup preload bypasses the kids filter, so a kids profile never falls back to it.
-    val rawDisplayCategoriesBase = if (uiState.categories.isNotEmpty() || kidsFilterState.isActive) {
-        uiState.categories
-    } else {
-        preloadedCategories
-    }
     val allSportsHomeRows by viewModel.sportsHomeRows.collectAsStateWithLifecycle()
     // Live sports carry no age rating; a kids profile does not get them.
     val sportsHomeRows = if (kidsFilterState.isActive) emptyList() else allSportsHomeRows
-    val rawDisplayCategories = remember(rawDisplayCategoriesBase, sportsHomeRows) {
-        viewModel.withSportsHomeRows(rawDisplayCategoriesBase, sportsHomeRows)
+    val rawDisplayCategories = remember(uiState.categories, sportsHomeRows) {
+        viewModel.withSportsHomeRows(uiState.categories, sportsHomeRows)
     }
     val displayCategories = remember(rawDisplayCategories, homeWatchlistItems) {
         withHomeWatchlistRow(deduplicateHomeCategories(rawDisplayCategories), homeWatchlistItems, enabled = true)
     }
-    val displayHeroItem = uiState.heroItem ?: preloadedHeroItem?.takeIf { !kidsFilterState.isActive }
+    val displayHeroItem = uiState.heroItem
         ?: if (uiState.categories.isEmpty()) {
             // Only fall through to first-row hero while the ViewModel is still
             // publishing its initial categories. Once categories are populated,
@@ -910,9 +890,7 @@ fun HomeScreen(
         } else {
             null
         }
-    val displayHeroLogo = homeHeroLogo(
-        displayHeroItem, uiState.heroLogoUrl, preloadedHeroItem, preloadedHeroLogoUrl
-    )
+    val displayHeroLogo = uiState.heroLogoUrl
     val displayHeroOverview = uiState.heroOverviewOverride
     val latestDisplayCategories by rememberUpdatedState(displayCategories)
     val latestDisplayHeroItem by rememberUpdatedState(displayHeroItem)
@@ -1227,14 +1205,13 @@ fun HomeScreen(
     // Keyed on the focused collection id so re-entering the card after
     // moving elsewhere replays it.
     var collectionVideoFinishedId by remember { mutableStateOf<Int?>(null) }
-    val heroVideoAllowed = true
     // Leaving the app (Home button / minimize) stops the activity but keeps this
     // composition alive, so the hero preview has to follow the lifecycle or its
     // audio keeps playing in the background.
     val homeLifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
     val isHomeStarted = homeLifecycleState.isAtLeast(Lifecycle.State.STARTED)
     val serviceHeroVideoUrl = displayHeroItem
-        ?.takeIf { heroVideoAllowed && isHeroCollection && collectionVideoFinishedId != it.id }
+        ?.takeIf { isHeroCollection && collectionVideoFinishedId != it.id }
         ?.let { viewModel.getCollectionHeroVideoUrl(it) }
     var heroIptvPreviewGate by remember { mutableStateOf<HomeIptvPreviewGate?>(null) }
     LaunchedEffect(displayHeroItem?.id, isHeroIptv, iptvChannelsVersion, isHomeStarted) {
@@ -1243,7 +1220,6 @@ fun HomeScreen(
     val heroVideoUrl = when {
         netflixHome && focusState.isHeroFocused -> null
         !isMobile && !focusState.userHasNavigated -> null
-        !heroVideoAllowed -> null
         !isHomeStarted -> null
         // Service collection MP4s should start as soon as the card becomes the hero.
         // Keep the idle gate for heavier IPTV/live playback, but do not delay MP4 previews.
@@ -1382,7 +1358,7 @@ fun HomeScreen(
                 }
                 player?.prepare()
                 preparedHeroVideoUrl = heroVideoUrl
-                preparedHeroStopsOnLeave = homeHeroStopsOnLeave(isHeroIptv, heroIptvPreviewGate)
+                preparedHeroStopsOnLeave = !isHeroIptv || homeHeroStopsOnLeave(isHeroIptv, heroIptvPreviewGate)
             }
             // Service videos play once with sound and stop; IPTV live streams
             // naturally don't loop (they're live) so REPEAT_MODE_OFF is safe
@@ -1465,9 +1441,9 @@ fun HomeScreen(
                 }
 
                 // YouTube trailer auto-play — on TV, trailer plays inside the focused card instead
-                if ((isMobile || !uiState.trailerInCards || heroRowIsPoster) && heroVideoUrl == null && uiState.trailerAutoPlay && uiState.heroTrailerKey != null && !trailerSuppressed && !heroRowIsContinueWatching) {
+                if ((isMobile || !uiState.trailerInCards || heroRowIsPoster) && heroVideoUrl == null && uiState.trailerAutoPlay && !trailerSuppressed && !heroRowIsContinueWatching) {
                     TrailerPlayer(
-                        youtubeKey = uiState.heroTrailerKey!!,
+                        youtubeKey = uiState.heroTrailerKey,
                         delayMs = uiState.trailerDelaySeconds * 1000L,
                         volume = if (uiState.trailerSoundEnabled) 1f else 0f,
                         onPlayingChanged = { playing -> isTrailerPlaying = playing },

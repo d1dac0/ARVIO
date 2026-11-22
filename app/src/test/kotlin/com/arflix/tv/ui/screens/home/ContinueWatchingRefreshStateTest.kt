@@ -2,9 +2,7 @@ package com.arflix.tv.ui.screens.home
 
 import androidx.datastore.preferences.core.*
 import app.cash.turbine.test
-import com.arflix.tv.data.model.Category
 import com.arflix.tv.data.model.Episode
-import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.repository.ContinueWatchingItem
 import kotlinx.coroutines.delay
@@ -34,16 +32,6 @@ class ContinueWatchingRefreshStateTest {
         assertFalse(requests.finish(old))
         assertNull(requests.claim(false))
         assertFalse(requests.finish(current))
-    }
-
-    @Test fun startupPreservesPreloadedRealContinueWatchingAndPrefersNewerPublishedItems() {
-        fun watching(id: Int) = Category("continue_watching", "Continue Watching", listOf(MediaItem(id, "Title $id")))
-        val catalog = Category("trending_movies", "Movies", listOf(MediaItem(9, "Catalog")))
-        assertEquals(1, preloadedHomeCategories(listOf(watching(1), catalog), emptyList()).first().items.single().id)
-        assertEquals(2, preloadedHomeCategories(listOf(watching(1), catalog), listOf(watching(2))).first().items.single().id)
-        val skeleton = watching(-1).copy(items = listOf(MediaItem(-1, "", isPlaceholder = true)))
-        assertEquals(1, preloadedHomeCategories(listOf(watching(1), catalog), listOf(skeleton)).first().items.single().id)
-        assertEquals(2, preloadedHomeCategories(listOf(catalog), emptyList()).size)
     }
 
     @Test fun restoredCredentialsAndRoutingRefreshButOrdinaryCacheWritesDoNot() = runTest {

@@ -74,6 +74,10 @@ class StreamRepositoryAddonMutationTest {
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.getProfileIdSync() } returns "default"
         every { profiles.currentProfileId } returns MutableStateFlow("default")
+        // personalAddons combines streamDataStore.data with profileManager.activeProfileId;
+        // a relaxed mock Flow there never emits, which would starve combine() and strand
+        // installedAddons.first() - these tests read it directly (and via refreshInstalledAddons).
+        every { profiles.activeProfileId } returns MutableStateFlow("default")
         every { profiles.profileStringKey(any()) } answers { stringPreferencesKey("profile_default_${firstArg<String>()}") }
         every { profiles.profileStringKeyFor(any(), any()) } answers {
             stringPreferencesKey("profile_${firstArg<String>()}_${secondArg<String>()}")

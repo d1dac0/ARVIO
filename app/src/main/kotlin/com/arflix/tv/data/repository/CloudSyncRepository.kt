@@ -688,7 +688,7 @@ class CloudSyncRepository @Inject constructor(
      * Builds the full cloud snapshot JSON for all profiles.
      * This replaces the SettingsViewModel version and does NOT reference any UI state.
      */
-    suspend fun buildCloudSnapshotJson(): String {
+    private suspend fun buildCloudSnapshotJson(remotePayload: String?): String {
         val prefs = context.settingsDataStore.data.first()
         val root = JSONObject()
         val profiles = profileRepository.getProfiles()
@@ -806,14 +806,13 @@ class CloudSyncRepository @Inject constructor(
 
         root.put("activeProfileId", profileRepository.getActiveProfileId() ?: JSONObject.NULL)
         root.put("profiles", JSONArray(gson.toJson(profiles)))
-        val existingAvatarImagesById = authRepository.loadAccountSyncPayload()
-            .getOrNull()
-            ?.takeIf { it.isNotBlank() }
-            ?.let { payload ->
-                try {
-                    JSONObject(payload).optJSONObject("profileAvatarImagesById")
-                } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; null }
+        val existingAvatarImagesById = remotePayload?.let { payload ->
+            try {
+                JSONObject(payload).optJSONObject("profileAvatarImagesById")
+            } catch (error: org.json.JSONException) {
+                null
             }
+        }
         root.put(
             "profileAvatarImagesById",
             profileAvatarImageManager.buildInlineAvatarImagesJson(profiles, existingAvatarImagesById)
@@ -1050,8 +1049,12 @@ class CloudSyncRepository @Inject constructor(
             return Result.failure(IllegalStateException("Not logged in"))
         }
         val uploadedVersion = synchronized(dirtyStateLock) { localMutationVersion }
+        val existingRemotePayload: String?
         val payload = try {
-            buildCloudSnapshotJson()
+            existingRemotePayload = authRepository.loadAccountSyncPayload()
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+            buildCloudSnapshotJson(existingRemotePayload)
         } catch (it: Throwable) {
             if (it is kotlinx.coroutines.CancellationException) throw it
             markPushFailedDirty()
@@ -1067,9 +1070,6 @@ class CloudSyncRepository @Inject constructor(
             return Result.failure(it)
         }
 
-        val existingRemotePayload = authRepository.loadAccountSyncPayload()
-            .getOrNull()
-            ?.takeIf { it.isNotBlank() }
         if (
             allowRemoteRestoreBeforePush &&
             existingRemotePayload != null &&
@@ -1359,11 +1359,33 @@ class CloudSyncRepository @Inject constructor(
     //  PULL CLOUD STATE TO LOCAL
     // ══════════════════════════════════════════════════════════
 
+    private var lastRestoredAccount: String? = null
+    private var lastRestoreFinishedAt = 0L
+
     /**
      * Restores the full cloud state to local repositories.
      * Returns [RestoreResult] indicating what happened.
      */
-    suspend fun pullFromCloud(pushPendingLocalFirst: Boolean = true): RestoreResult = cloudSyncMutex.withLock {
+    suspend fun pullFromCloud(
+        pushPendingLocalFirst: Boolean = true,
+        recentRestoreWindowMs: Long = 0L
+    ): RestoreResult = cloudSyncMutex.withLock {
+        val account = authRepository.getCurrentUserId()
+        if (recentRestoreWindowMs > 0 && account != null && lastRestoredAccount == account &&
+            android.os.SystemClock.elapsedRealtime() - lastRestoreFinishedAt < recentRestoreWindowMs &&
+            !hasPendingLocalChanges()
+        ) {
+            return@withLock RestoreResult.RESTORED
+        }
+        pullFromCloudLocked(pushPendingLocalFirst).also { result ->
+            if (result == RestoreResult.RESTORED && account != null && account == authRepository.getCurrentUserId()) {
+                lastRestoredAccount = account
+                lastRestoreFinishedAt = android.os.SystemClock.elapsedRealtime()
+            }
+        }
+    }
+
+    private suspend fun pullFromCloudLocked(pushPendingLocalFirst: Boolean): RestoreResult {
         val hasPendingLocalChanges = hasPendingLocalChanges()
         if (pushPendingLocalFirst && hasPendingLocalChanges) {
             AppLogger.breadcrumb(
@@ -1380,7 +1402,7 @@ class CloudSyncRepository @Inject constructor(
                         "cloud_flow" to "pull_pre_push_pending_local"
                     )
                 )
-                return@withLock RestoreResult.FAILED
+                return RestoreResult.FAILED
             }
         } else if (!pushPendingLocalFirst && hasPendingLocalChanges) {
             AppLogger.breadcrumb(
@@ -1399,7 +1421,7 @@ class CloudSyncRepository @Inject constructor(
                     "cloud_flow" to "pull_load_payload"
                 )
             )
-            return@withLock RestoreResult.FAILED
+            return RestoreResult.FAILED
         }
 
         val payload = payloadResult.getOrNull().orEmpty()
@@ -1410,12 +1432,12 @@ class CloudSyncRepository @Inject constructor(
                 message = "pull_no_backup",
                 severity = "info"
             )
-            return@withLock RestoreResult.NO_BACKUP
+            return RestoreResult.NO_BACKUP
         }
 
         val remoteRestoreRank = accountSyncPayloadRestoreRank(payload)
         val localRestoreRank = try {
-            accountSyncPayloadRestoreRank(buildCloudSnapshotJson())
+            accountSyncPayloadRestoreRank(buildCloudSnapshotJson(payload))
         } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; 0 }
         if (localRestoreRank > remoteRestoreRank && remoteRestoreRank <= 10) {
             AppLogger.breadcrumb(
@@ -1424,7 +1446,7 @@ class CloudSyncRepository @Inject constructor(
                 severity = "warning"
             )
             val pushResult = pushToCloudLocked()
-            return@withLock if (pushResult.isSuccess) RestoreResult.RESTORED else RestoreResult.FAILED
+            return if (pushResult.isSuccess) RestoreResult.RESTORED else RestoreResult.FAILED
         }
 
         val cloudProfileCount = cloudPayloadProfileCount(payload)
@@ -1437,7 +1459,7 @@ class CloudSyncRepository @Inject constructor(
                     severity = "warning"
                 )
                 val pushResult = pushToCloudLocked()
-                return@withLock if (pushResult.isSuccess) RestoreResult.RESTORED else RestoreResult.FAILED
+                return if (pushResult.isSuccess) RestoreResult.RESTORED else RestoreResult.FAILED
             }
 
             Log.i(TAG, "Pull found cloud backup without usable profiles")
@@ -1446,7 +1468,7 @@ class CloudSyncRepository @Inject constructor(
                 message = "pull_remote_profiles_empty_no_restore local_profiles=${localProfiles.size}",
                 severity = "warning"
             )
-            return@withLock RestoreResult.NO_BACKUP
+            return RestoreResult.NO_BACKUP
         }
 
         if (!pushPendingLocalFirst && cloudProfileCount == null) {
@@ -1458,7 +1480,7 @@ class CloudSyncRepository @Inject constructor(
                     severity = "warning"
                 )
                 val pushResult = pushToCloudLocked()
-                return@withLock if (pushResult.isSuccess) RestoreResult.RESTORED else RestoreResult.FAILED
+                return if (pushResult.isSuccess) RestoreResult.RESTORED else RestoreResult.FAILED
             }
 
             Log.i(TAG, "Pull found legacy cloud backup without profile list")
@@ -1467,7 +1489,7 @@ class CloudSyncRepository @Inject constructor(
                 message = "pull_remote_profiles_missing_no_restore local_profiles=${localProfiles.size}",
                 severity = "warning"
             )
-            return@withLock RestoreResult.NO_BACKUP
+            return RestoreResult.NO_BACKUP
         }
 
         val prefs = context.settingsDataStore.data.first()
@@ -1481,10 +1503,10 @@ class CloudSyncRepository @Inject constructor(
                 message = "pull_skipped_identical_payload",
                 severity = "info"
             )
-            return@withLock RestoreResult.RESTORED
+            return RestoreResult.RESTORED
         }
 
-        try {
+        return try {
             invalidationBus.suppressDuringRemoteApply {
                 if (!pushPendingLocalFirst) {
                     clearStaleLocalDirtyBeforeRemoteRestore()
@@ -1555,7 +1577,7 @@ class CloudSyncRepository @Inject constructor(
         // below). Legacy payloads have timestamp zero; they must not undo a newer local deletion.
         // The rest of this function writes the merged values exactly as before.
         val localSnapshotForMerge = try {
-            buildCloudSnapshotJson()
+            buildCloudSnapshotJson(payload)
         } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; null }
         val settingsMerge = localSnapshotForMerge?.let {
             mergeSettingsByTimestamp(baseStr = payload, otherStr = it)

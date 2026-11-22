@@ -1,6 +1,10 @@
 package com.arflix.tv.data.repository
 
+import android.app.ActivityManager
+import android.content.ComponentCallbacks2
 import android.content.Context
+import android.content.res.Configuration
+import android.util.AtomicFile
 import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -46,9 +50,13 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -65,6 +73,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import retrofit2.HttpException
+import java.io.File
+import java.io.IOException
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.MessageDigest
@@ -377,8 +387,14 @@ class StreamRepository @Inject constructor(
         val source: String = "",
         val bingeGroup: String? = null
     )
-    private val streamResultCache = mutableMapOf<String, CachedStreamResult>()
-    private val resolvedStreamCache = ConcurrentHashMap<String, CachedResolvedStream>()
+    private val cacheCapacity =
+        if (context.getSystemService(ActivityManager::class.java)?.isLowRamDevice == true) 8 else 24
+    private val streamResultCache = ExpiringStreamCache<String, CachedStreamResult>(cacheCapacity) {
+        it.createdAtMs + cacheTtlMsFor(it.result) + streamResultCacheDiskStaleGraceMs
+    }
+    private val resolvedStreamCache = ExpiringStreamCache<String, CachedResolvedStream>(cacheCapacity) {
+        it.createdAtMs + resolvedStreamCacheTtlMs(it.stream)
+    }
     private data class CachedAddonMeta(val meta: StremioMetaPreview, val createdAtMs: Long)
     private val addonMetaCache = ConcurrentHashMap<String, CachedAddonMeta>()
     // Cache getStreamAddons() result per content type, invalidated when addon list changes.
@@ -436,6 +452,10 @@ class StreamRepository @Inject constructor(
     private val playbackHostHealth = ConcurrentHashMap<String, PlaybackHostHealth>()
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var addonHealthLoadedProfileId: String? = null
+    private val addonHealthLoadMutex = Mutex()
+    private val addonHealthUpdates = Channel<Unit>(Channel.CONFLATED)
+    private val pendingAddonHealth = mutableMapOf<String, Map<String, AddonRuntimeHealth>>()
+    private var addonHealthDirty = false
 
     // Precompiled quality filters cached in memory to avoid DataStore reads and regex compilation in hot path
     private data class PrecompiledQualityFilter(
@@ -464,27 +484,17 @@ class StreamRepository @Inject constructor(
     private fun torrServerBaseUrlKey() = profileManager.profileStringKey("torrserver_base_url_v1")
     private fun addonHealthKeyFor(profileId: String) = profileManager.profileStringKeyFor(profileId, "addon_health_v1")
     private val qualityFiltersKey = stringPreferencesKey("quality_filters")
-    private val streamResultCacheBundleType = TypeToken.getParameterized(Map::class.java, String::class.java, PersistedStreamResultPayload::class.java).type
-    private val streamResultCacheDiskTtlMs = 4 * 60 * 60_000L
     private val streamResultCacheDiskStaleGraceMs = 5 * 60_000L
-    private val streamResultCacheDiskMaxEntries = 320
-    private fun streamResultCacheBundleKey(profileId: String): Preferences.Key<String> =
-        stringPreferencesKey("profile_${profileId}_stream_result_cache_v2")
-    private fun streamResultCacheEntryKey(cacheKey: String): String {
-        val hash = MessageDigest.getInstance("SHA-1")
-            .digest(cacheKey.toByteArray(Charsets.UTF_8))
-            .joinToString("") { byte -> "%02x".format(byte) }
-        return hash.take(16)
-    }
+    private val streamResultDiskCache = File(context.cacheDir, "stream_cache")
+    private val streamResultDiskCacheMutex = Mutex()
+    private val streamResultDiskCacheMaxBytes = 2 * 1024 * 1024L
+    private val streamResultDiskCacheMaxEntries = 320
 
-    private fun decodeStreamResultCacheBundle(raw: String): Map<String, PersistedStreamResultPayload> {
-        if (raw.isBlank()) return emptyMap()
-        return runCatching {
-            gson.fromJson(raw, streamResultCacheBundleType) as? Map<String, PersistedStreamResultPayload> ?: emptyMap()
-        }.getOrElse {
-            Log.w(TAG, "[StreamCache][Decode] malformed stream result cache payload")
-            emptyMap()
-        }
+    private fun streamResultCacheFile(profileId: String, cacheKey: String): File {
+        val hash = MessageDigest.getInstance("SHA-256")
+            .digest("$profileId/$cacheKey".toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte) }
+        return File(streamResultDiskCache, "$hash.json")
     }
 
     private fun isStreamCacheFresh(cached: CachedStreamResult, graceMs: Long = 0L): Boolean {
@@ -498,53 +508,112 @@ class StreamRepository @Inject constructor(
         cacheKey: String,
         graceMs: Long = 0L
     ): CachedStreamResult? = withContext(Dispatchers.IO) {
-        val entryKey = streamResultCacheEntryKey(cacheKey)
-        val raw = context.streamDataStore.data.first()[streamResultCacheBundleKey(profileId)].orEmpty()
-        val payload = decodeStreamResultCacheBundle(raw)[entryKey] ?: return@withContext null
-        val cached = CachedStreamResult(
-            result = StreamResult(payload.streams, payload.subtitles),
-            createdAtMs = payload.createdAtMs
-        )
-        if (isStreamCacheFresh(cached, graceMs)) cached else null
+        streamResultDiskCacheMutex.withLock {
+            val file = streamResultCacheFile(profileId, cacheKey)
+            if (!file.isFile || file.length() > streamResultDiskCacheMaxBytes) return@withLock null
+            val payload = try {
+                AtomicFile(file).openRead().bufferedReader().use {
+                    gson.fromJson(it, PersistedStreamResultPayload::class.java)
+                }
+            } catch (e: IOException) {
+                null
+            } catch (e: com.google.gson.JsonParseException) {
+                null
+            }
+            if (payload == null) {
+                AtomicFile(file).delete()
+                return@withLock null
+            }
+            val cached = CachedStreamResult(
+                result = StreamResult(payload.streams, payload.subtitles),
+                createdAtMs = payload.createdAtMs
+            )
+            if (!isStreamCacheFresh(cached, graceMs)) return@withLock null
+            file.setLastModified(System.currentTimeMillis())
+            cached
+        }
     }
 
-    private fun persistStreamResult(profileId: String, cacheKey: String, cached: CachedStreamResult) {
-        val entryKey = streamResultCacheEntryKey(cacheKey)
-        val payload = PersistedStreamResultPayload(
-            streams = cached.result.streams,
-            subtitles = cached.result.subtitles,
-            createdAtMs = cached.createdAtMs
-        )
-        repositoryScope.launch {
-            runCatching {
-                val bundleKey = streamResultCacheBundleKey(profileId)
-                val now = System.currentTimeMillis()
-                val raw = context.streamDataStore.data.first()[bundleKey].orEmpty()
-                val decoded = decodeStreamResultCacheBundle(raw).toMutableMap()
-                decoded[entryKey] = payload
-                val trimmed = decoded.entries
-                    .filter { now - it.value.createdAtMs <= streamResultCacheDiskTtlMs + streamResultCacheDiskStaleGraceMs }
-                    .sortedByDescending { it.value.createdAtMs }
-                    .take(streamResultCacheDiskMaxEntries)
-                    .associate { it.key to it.value }
-                context.streamDataStore.edit { prefs ->
-                    if (trimmed.isEmpty()) {
-                        prefs.remove(bundleKey)
-                    } else {
-                        prefs[bundleKey] = gson.toJson(trimmed)
+    private suspend fun persistStreamResult(profileId: String, cacheKey: String, cached: CachedStreamResult) {
+        withContext(Dispatchers.IO) {
+            streamResultDiskCacheMutex.withLock {
+                try {
+                    streamResultDiskCache.mkdirs()
+                    val file = streamResultCacheFile(profileId, cacheKey)
+                    val atomic = AtomicFile(file)
+                    val output = atomic.startWrite()
+                    try {
+                        val writer = output.bufferedWriter()
+                        gson.toJson(
+                            PersistedStreamResultPayload(cached.result.streams, cached.result.subtitles, cached.createdAtMs),
+                            writer
+                        )
+                        writer.flush()
+                        atomic.finishWrite(output)
+                    } catch (e: Exception) {
+                        atomic.failWrite(output)
+                        throw e
                     }
+
+                    var bytesRemaining = streamResultDiskCacheMaxBytes
+                    var entriesRemaining = streamResultDiskCacheMaxEntries
+                    streamResultDiskCache.listFiles()
+                        ?.sortedByDescending { it.lastModified() }
+                        ?.forEach { entry ->
+                            val bytes = entry.length()
+                            if (entry.extension != "json" || bytes > bytesRemaining || entriesRemaining == 0) {
+                                entry.delete()
+                            } else {
+                                bytesRemaining -= bytes
+                                entriesRemaining--
+                            }
+                        }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    Log.w(TAG, "[StreamCache] Could not save disk entry", e)
                 }
-            }.onFailure {
-                Log.w(TAG, "[StreamCache][Persist] failed key=$cacheKey reason=${it::class.java.simpleName}")
             }
         }
     }
 
     init {
+        context.applicationContext?.registerComponentCallbacks(object : ComponentCallbacks2 {
+            override fun onConfigurationChanged(newConfig: Configuration) = Unit
+
+            override fun onLowMemory() {
+                clearStreamMemoryCaches()
+            }
+
+            override fun onTrimMemory(level: Int) {
+                // UI_HIDDEN (20) numerically exceeds TRIM_MEMORY_RUNNING_LOW (10) but only
+                // signals the UI went to the background, not real memory pressure; clearing
+                // there would drop caches on every backgrounding and force re-resolution.
+                if (level < ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+                    level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN
+                ) return
+                clearStreamMemoryCaches()
+            }
+        })
         repositoryScope.launch {
+            val obsoleteKeys = context.streamDataStore.data.first().asMap().keys.filter {
+                it.name.startsWith("profile_") && it.name.endsWith("_stream_result_cache_v2")
+            }
+            if (obsoleteKeys.isNotEmpty()) {
+                context.streamDataStore.edit { prefs -> obsoleteKeys.forEach { prefs.remove(it) } }
+            }
             ensureAddonHealthLoaded()
             loadQualityFiltersCache()
         }
+        repositoryScope.launch {
+            collectAddonHealthWrites(addonHealthUpdates.receiveAsFlow()) {
+                flushAddonHealth()
+            }
+        }
+    }
+
+    private fun clearStreamMemoryCaches() {
+        streamResultCache.clear()
+        resolvedStreamCache.clear()
     }
 
     /**
@@ -649,10 +718,15 @@ class StreamRepository @Inject constructor(
     // ========== Addon Management ==========
 
     val personalAddons: Flow<List<Addon>> =
-        context.streamDataStore.data.map { prefs ->
-            val addons = readSharedOrLegacyAddons(prefs) ?: getDefaultAddonList()
+        combine(context.streamDataStore.data, profileManager.activeProfileId) { prefs, profileId ->
+            profileId to prefs.asMap().filterKeys {
+                it == sharedAddonsKey || it == sharedPendingAddonsKey ||
+                    it.name.endsWith("_installed_addons") || it.name.endsWith("_pending_addons")
+            }
+        }.distinctUntilChanged().map { (profileId, values) ->
+            val addons = readSharedOrLegacyAddons(values, profileId) ?: getDefaultAddonList()
             enforceOpenSubtitles(addons).map { sanitizeAddonDisplayName(it) }
-        }
+        }.flowOn(Dispatchers.Default)
 
     val installedAddons: Flow<List<Addon>> = if (!com.arflix.tv.BuildConfig.PARTNER_MANAGEMENT_ENABLED || partnerDelivery == null) {
         personalAddons
@@ -660,21 +734,23 @@ class StreamRepository @Inject constructor(
         personal.filterNot { PartnerCatalogs.isManaged(it.id) } + delivery?.addons.orEmpty()
     }
 
-    private fun readSharedOrLegacyAddons(prefs: Preferences): List<Addon>? {
-        parseAddons(prefs[sharedAddonsKey])?.takeIf { it.isNotEmpty() }?.let { return it }
-        parseAddons(prefs[sharedPendingAddonsKey])?.takeIf { it.isNotEmpty() }?.let { return it }
+    private fun readSharedOrLegacyAddons(prefs: Preferences): List<Addon>? =
+        readSharedOrLegacyAddons(prefs.asMap(), profileManager.getProfileIdSync())
+
+    private fun readSharedOrLegacyAddons(prefs: Map<Preferences.Key<*>, Any>, activeProfileId: String): List<Addon>? {
+        parseAddons(prefs[sharedAddonsKey] as? String)?.takeIf { it.isNotEmpty() }?.let { return it }
+        parseAddons(prefs[sharedPendingAddonsKey] as? String)?.takeIf { it.isNotEmpty() }?.let { return it }
 
         val merged = LinkedHashMap<String, Addon>()
         fun mergeFrom(json: String?) {
             parseAddons(json).orEmpty().forEach { addon -> merged.putIfAbsent(addon.id, addon) }
         }
 
-        val activeProfileId = profileManager.getProfileIdSync()
-        mergeFrom(prefs[addonsKeyFor(activeProfileId)])
-        mergeFrom(prefs[pendingAddonsKeyFor(activeProfileId)])
-        mergeFrom(prefs[addonsKeyFor("default")])
-        mergeFrom(prefs[pendingAddonsKeyFor("default")])
-        prefs.asMap().forEach { (key, value) ->
+        mergeFrom(prefs[addonsKeyFor(activeProfileId)] as? String)
+        mergeFrom(prefs[pendingAddonsKeyFor(activeProfileId)] as? String)
+        mergeFrom(prefs[addonsKeyFor("default")] as? String)
+        mergeFrom(prefs[pendingAddonsKeyFor("default")] as? String)
+        prefs.forEach { (key, value) ->
             val keyName = key.name
             if (keyName.endsWith("_installed_addons") || keyName.endsWith("_pending_addons")) {
                 mergeFrom(value as? String)
@@ -964,12 +1040,8 @@ class StreamRepository @Inject constructor(
             cachedStreamAddonsFingerprint = null
         }
 
-        runCatching {
-            val activeProfileId = profileManager.getProfileIdSync()
-            val bundleKey = streamResultCacheBundleKey(activeProfileId)
-            context.streamDataStore.edit { prefs ->
-                prefs.remove(bundleKey)
-            }
+        streamResultDiskCacheMutex.withLock {
+            streamResultDiskCache.listFiles()?.forEach { it.delete() }
         }
 
         AddonRefreshReport(refreshed = refreshedCount, failed = failedCount)
@@ -4082,14 +4154,9 @@ class StreamRepository @Inject constructor(
     }
 
     private fun cachedResolvedStream(stream: StreamSource): StreamSource? {
-        val cached = resolvedStreamCache[resolvedStreamCacheKey(stream)] ?: return null
-        val ageMs = System.currentTimeMillis() - cached.createdAtMs
-        return if (ageMs <= resolvedStreamCacheTtlMs(cached.stream)) {
-            cached.stream
-        } else {
-            resolvedStreamCache.remove(resolvedStreamCacheKey(stream))
-            null
-        }
+        return resolvedStreamCache[resolvedStreamCacheKey(stream)]?.takeIf {
+            System.currentTimeMillis() - it.createdAtMs <= resolvedStreamCacheTtlMs(it.stream)
+        }?.stream
     }
 
     private fun shouldAvoidPlaybackProbe(url: String, stream: StreamSource): Boolean {
@@ -4938,29 +5005,31 @@ class StreamRepository @Inject constructor(
 
     fun noteAddonPlaybackStarted(addonId: String, startupMs: Long) {
         if (addonId.isBlank()) return
-        if (addonHealthLoadedProfileId == null) {
-            repositoryScope.launch { ensureAddonHealthLoaded() }
+        repositoryScope.launch {
+            ensureAddonHealthLoaded()
+            synchronized(addonRuntimeHealth) {
+                val stats = addonRuntimeHealth.getOrPut(addonId) { AddonRuntimeHealth() }
+                stats.playbackStarts += 1
+                stats.consecutiveFailures = 0
+                stats.avgStartupMs = rollingAverage(stats.avgStartupMs, startupMs)
+                addonHealthDirty = true
+            }
+            addonHealthUpdates.trySend(Unit)
         }
-        synchronized(addonRuntimeHealth) {
-            val stats = addonRuntimeHealth.getOrPut(addonId) { AddonRuntimeHealth() }
-            stats.playbackStarts += 1
-            stats.consecutiveFailures = 0
-            stats.avgStartupMs = rollingAverage(stats.avgStartupMs, startupMs)
-        }
-        persistAddonHealthAsync()
     }
 
     fun noteAddonPlaybackFailure(addonId: String) {
         if (addonId.isBlank()) return
-        if (addonHealthLoadedProfileId == null) {
-            repositoryScope.launch { ensureAddonHealthLoaded() }
+        repositoryScope.launch {
+            ensureAddonHealthLoaded()
+            synchronized(addonRuntimeHealth) {
+                val stats = addonRuntimeHealth.getOrPut(addonId) { AddonRuntimeHealth() }
+                stats.playbackFailures += 1
+                stats.consecutiveFailures += 1
+                addonHealthDirty = true
+            }
+            addonHealthUpdates.trySend(Unit)
         }
-        synchronized(addonRuntimeHealth) {
-            val stats = addonRuntimeHealth.getOrPut(addonId) { AddonRuntimeHealth() }
-            stats.playbackFailures += 1
-            stats.consecutiveFailures += 1
-        }
-        persistAddonHealthAsync()
     }
 
     private fun recordAddonFetchOutcome(addonId: String, success: Boolean, latencyMs: Long) {
@@ -4977,42 +5046,55 @@ class StreamRepository @Inject constructor(
             if (latencyMs > 0L) {
                 stats.avgFetchLatencyMs = rollingAverage(stats.avgFetchLatencyMs, latencyMs)
             }
+            addonHealthDirty = true
         }
-        persistAddonHealthAsync()
+        addonHealthUpdates.trySend(Unit)
     }
 
-    private suspend fun ensureAddonHealthLoaded() {
+    private suspend fun ensureAddonHealthLoaded() = addonHealthLoadMutex.withLock {
         val profileId = profileManager.getProfileIdSync().ifBlank { "default" }
-        if (addonHealthLoadedProfileId == profileId) return
+        if (addonHealthLoadedProfileId == profileId) return@withLock
 
         val raw = context.streamDataStore.data.first()[addonHealthKeyFor(profileId)].orEmpty()
-        val parsed: Map<String, AddonRuntimeHealth> = if (raw.isBlank()) {
+        val parsed = try {
+            if (raw.isBlank()) emptyMap() else
+                gson.fromJson<Map<String, AddonRuntimeHealth>>(raw, StreamRepositoryTypeTokens.ADDON_HEALTH_TYPE).orEmpty()
+        } catch (e: com.google.gson.JsonParseException) {
             emptyMap()
-        } else {
-            try {
-                gson.fromJson<Map<String, AddonRuntimeHealth>>(raw, StreamRepositoryTypeTokens.ADDON_HEALTH_TYPE) ?: emptyMap()
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                emptyMap()
-            }
         }
 
         synchronized(addonRuntimeHealth) {
+            captureDirtyAddonHealth()
+            val latest = pendingAddonHealth[profileId] ?: parsed
             addonRuntimeHealth.clear()
-            addonRuntimeHealth.putAll(parsed)
+            latest.forEach { (id, stats) -> addonRuntimeHealth[id] = stats.copy() }
+            addonHealthLoadedProfileId = profileId
         }
-        addonHealthLoadedProfileId = profileId
     }
 
-    private fun persistAddonHealthAsync() {
-        val loadedProfile = addonHealthLoadedProfileId ?: return
-        val snapshot = synchronized(addonRuntimeHealth) { LinkedHashMap(addonRuntimeHealth) }
-        repositoryScope.launch {
-            runCatching {
-                context.streamDataStore.edit { prefs ->
-                    prefs[addonHealthKeyFor(loadedProfile)] = gson.toJson(snapshot)
-                }
+    // Runs under the addonRuntimeHealth lock, so serialization has an immutable snapshot.
+    private fun captureDirtyAddonHealth() {
+        val profile = addonHealthLoadedProfileId ?: return
+        if (!addonHealthDirty) return
+        pendingAddonHealth[profile] = addonRuntimeHealth.mapValues { (_, stats) -> stats.copy() }
+        addonHealthDirty = false
+    }
+
+    private suspend fun flushAddonHealth() = addonHealthLoadMutex.withLock {
+        val snapshots = synchronized(addonRuntimeHealth) {
+            captureDirtyAddonHealth()
+            pendingAddonHealth.toMap()
+        }
+        if (snapshots.isEmpty()) return@withLock
+        try {
+            val encoded = snapshots.mapValues { (_, stats) -> gson.toJson(stats) }
+            context.streamDataStore.edit { prefs ->
+                encoded.forEach { (profile, json) -> prefs[addonHealthKeyFor(profile)] = json }
             }
+            synchronized(addonRuntimeHealth) { pendingAddonHealth.clear() }
+        } catch (e: IOException) {
+            addonHealthUpdates.trySend(Unit)
+            Log.w(TAG, "[AddonHealth] Could not save addon health", e)
         }
     }
 

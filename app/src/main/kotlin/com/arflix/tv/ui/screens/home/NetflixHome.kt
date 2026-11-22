@@ -565,7 +565,7 @@ private fun NetflixBillboard(
                     val widthPx = with(density) { mediaWidth.roundToPx() }.coerceAtLeast(1)
                     val heightPx = with(density) { mediaHeight.roundToPx() }.coerceAtLeast(1)
                     ImageRequest.Builder(context)
-                        .data(TmdbImageSizing.forSlot(it, widthPx, heightPx, TmdbImageSizing.Kind.BACKDROP))
+                        .data(TmdbImageSizing.forSlot(it, widthPx, heightPx, TmdbImageSizing.Kind.BACKDROP, maxUpscale = 1.6f))
                         .size(widthPx, heightPx)
                         .precision(Precision.INEXACT)
                         .crossfade(250)
@@ -580,7 +580,7 @@ private fun NetflixBillboard(
                     modifier = Modifier.fillMaxSize()
                 )
             }
-            if (autoplayEnabled && trailerKey != null) {
+            if (autoplayEnabled) {
                 TrailerPlayer(
                     youtubeKey = trailerKey,
                     delayMs = NETFLIX_RAIL_MORPH_MS.toLong(),

@@ -393,8 +393,6 @@ internal fun loadPagedChannelWindow(
 
 /**
  * Live TV screen — Arvio spec §1. Three focus regions: Sidebar ↔ MiniPlayer ↔ EPG.
- * Preserves every IPTV feature from the legacy [com.arflix.tv.ui.screens.tv.TvScreen]
- * (favorites, hidden groups, EPG refresh, cloud sync) — only the UI shell is new.
  */
 private fun guideWindowAround(index: Int, total: Int): Pair<Int, Int> {
     if (total <= 0) return 0 to 0
@@ -1679,32 +1677,18 @@ fun LiveTvScreen(
             else effectiveGuideNowNext[channel.id]?.atTime(guideClockMillis)
         return channel to guide
     }
-    val actionGuideNowNext = remember(state.snapshot.nowNext, effectiveGuideNowNext) {
-        HashMap(state.snapshot.nowNext).apply { putAll(effectiveGuideNowNext) }
-    }
-    val guideIdentityKeysByChannelId = remember(enrichedState.value.all) {
-        enrichedState.value.all.associate { channel ->
-            channel.id to guideIdentityKeys(
-                channel.source.epgId,
-                channel.source.tvgName,
-                channel.source.rawTitle,
-                channel.name,
-            )
+    val actionChannels by rememberUpdatedState(enrichedState.value.all)
+    val actionSnapshotGuide by rememberUpdatedState(state.snapshot.nowNext)
+    val actionWindowGuide by rememberUpdatedState(effectiveGuideNowNext)
+    val actionGuideLookup = remember { ProgramActionGuideLookup() }
+    suspend fun currentProgramForAction(channel: EnrichedChannel): IptvProgram? {
+        val channels = actionChannels
+        val snapshotGuide = actionSnapshotGuide
+        val windowGuide = actionWindowGuide
+        return withContext(Dispatchers.Default) {
+            actionGuideLookup.currentProgram(channel, channels, snapshotGuide, windowGuide)
         }
     }
-    val currentActionGuideNowNext by rememberUpdatedState(actionGuideNowNext)
-    val currentGuideIdentityKeysByChannelId by rememberUpdatedState(guideIdentityKeysByChannelId)
-    fun currentProgramForAction(channel: EnrichedChannel): IptvProgram? = guideProgramForAction(
-        channelId = channel.id,
-        guideIdentityKeys = guideIdentityKeys(
-            channel.source.epgId,
-            channel.source.tvgName,
-            channel.source.rawTitle,
-            channel.name,
-        ),
-        guideByChannelId = currentActionGuideNowNext,
-        guideIdentityKeysByChannelId = currentGuideIdentityKeysByChannelId,
-    )
 
     val epgAnchorChannelId = epgPrefetchAnchorId
         ?: selectedDisplayChannelId
@@ -1962,7 +1946,7 @@ fun LiveTvScreen(
     }
     val sportsScheduleKey = SportsScheduleKey(currentProfile?.id, selectedProviderId, state.snapshot.loadedAt.toEpochMilli(),
         hiddenGroupSet + restrictedGroupSet, state.epgBackfillInProgress, guideClockMillis / 600_000L,
-        state.snapshot.nowNext.size / 64)
+        hasGuide = state.snapshot.nowNext.isNotEmpty())
     var sportsFocusSignal by remember { mutableIntStateOf(0) }
     val sportsClockFormat by remember(currentProfile?.id) { viewModel.sportsClockFormat(currentProfile?.id) }.collectAsStateWithLifecycle(initialValue = "24h")
     val guideRowCount by remember(currentProfile?.id) { viewModel.guideRowCount(currentProfile?.id) }.collectAsStateWithLifecycle(initialValue = null)
@@ -1977,7 +1961,8 @@ fun LiveTvScreen(
     var sportsRefresh by remember { mutableIntStateOf(0) }
     var addonEvents by remember(currentProfile?.id, sportsAddonInstallations) { mutableStateOf(emptyList<com.arflix.tv.data.model.SportsAddonEvent>()) }
     var addonLoading by remember { mutableStateOf(false) }
-    LaunchedEffect(currentProfile?.id, sportsAddonInstallations, sportsRefresh) {
+    LaunchedEffect(sportsSelected, currentProfile?.id, sportsAddonInstallations, sportsRefresh) {
+        if (!sportsSelected) return@LaunchedEffect
         while (sportsAddonInstallations.isNotEmpty()) {
             addonLoading = true
             try {
@@ -1991,10 +1976,11 @@ fun LiveTvScreen(
         }
     }
     var completedSportsScan by remember(currentProfile?.id, selectedProviderId, hiddenGroupSet, restrictedGroupSet) {
-        mutableStateOf<List<Any>?>(null)
+        mutableStateOf<Pair<SportsScheduleKey, Int>?>(null)
     }
     var sportsArtwork by remember(currentProfile?.id) { mutableStateOf(emptyList<com.arflix.tv.data.model.SportsEventArtwork>()) }
-    LaunchedEffect(currentProfile?.id, state.snapshot.loadedAt, sportsRefresh) {
+    LaunchedEffect(sportsSelected, currentProfile?.id, state.snapshot.loadedAt, sportsRefresh) {
+        if (!sportsSelected) return@LaunchedEffect
         if (state.snapshot.loadedAt.toEpochMilli() > 0L) {
             sportsMetadataLoading = true
             try {
@@ -2014,13 +2000,15 @@ fun LiveTvScreen(
         SportsBroadcasterIndexKey(currentProfile?.id, selectedProviderId, state.snapshot.loadedAt.toEpochMilli(), hiddenGroupSet + restrictedGroupSet)
     }
     var broadcasterKeys by remember { mutableStateOf(emptySet<String>()) }
-    LaunchedEffect(sportsArtwork) {
+    LaunchedEffect(sportsSelected, sportsArtwork) {
+        if (!sportsSelected) return@LaunchedEffect
         broadcasterKeys = withContext(Dispatchers.Default) {
             sportsArtwork.asSequence().flatMap { it.fixture?.broadcasters.orEmpty().asSequence() }
                 .distinctBy { it.name to it.country }.flatMap { sportsBroadcasterKeys(it.name, it.country).asSequence() }.toSet()
         }
     }
-    LaunchedEffect(broadcasterKeys, currentProfile?.id, selectedProviderId, hiddenGroupSet, restrictedGroupSet, state.snapshot.loadedAt) {
+    LaunchedEffect(sportsSelected, broadcasterKeys, currentProfile?.id, selectedProviderId, hiddenGroupSet, restrictedGroupSet, state.snapshot.loadedAt) {
+        if (!sportsSelected) return@LaunchedEffect
         if (broadcasterKeys.isEmpty()) { broadcastCandidates = emptyList(); return@LaunchedEffect }
         sportsBroadcastLoading = true
         val matchingStarted = android.os.SystemClock.elapsedRealtime()
@@ -2040,14 +2028,16 @@ fun LiveTvScreen(
     }
     var illustratedSportsEvents by remember(currentProfile?.id, selectedProviderId, hiddenGroupSet, restrictedGroupSet) { mutableStateOf(emptyList<SportsGuideEvent>()) }
     var restoredSportsCatalogue by remember(currentProfile?.id, selectedProviderId, hiddenGroupSet, restrictedGroupSet, state.snapshot.loadedAt) { mutableStateOf(emptyList<SportsGuideEvent>()) }
-    LaunchedEffect(currentProfile?.id, selectedProviderId, hiddenGroupSet, restrictedGroupSet, state.snapshot.loadedAt) {
+    LaunchedEffect(sportsSelected, currentProfile?.id, selectedProviderId, hiddenGroupSet, restrictedGroupSet, state.snapshot.loadedAt) {
+        if (!sportsSelected) return@LaunchedEffect
         if (state.snapshot.loadedAt.toEpochMilli() > 0L) {
             val started = android.os.SystemClock.elapsedRealtime()
             restoredSportsCatalogue = viewModel.restoreSportsCatalogue(sportsScheduleKey)
             System.err.println("[Sports-Restore] events=${restoredSportsCatalogue.size} elapsed=${android.os.SystemClock.elapsedRealtime() - started}ms")
         }
     }
-    LaunchedEffect(sportsEvents, sportsArtwork, broadcastCandidates, addonEvents) {
+    LaunchedEffect(sportsSelected, sportsEvents, sportsArtwork, broadcastCandidates, addonEvents) {
+        if (!sportsSelected) return@LaunchedEffect
         sportsCatalogueLoading = true
         try { illustratedSportsEvents = withContext(Dispatchers.Default) {
             attachSportsAddonSources(buildSportsCatalogue(sportsEvents, sportsArtwork, broadcastCandidates, guideClockMillis), addonEvents, guideClockMillis, sportsArtwork)
@@ -2066,14 +2056,10 @@ fun LiveTvScreen(
             quickGuideRows[category.id]?.let { category.copy(count = it.size) } ?: category
         })
     }
-    val sportsGuideCoverageBucket = state.snapshot.nowNext.size / 64
-    LaunchedEffect(currentProfile?.id, selectedProviderId, hiddenGroupSet,
-        restrictedGroupSet, state.snapshot.loadedAt, state.epgBackfillInProgress, sportsRefresh,
-        sportsGuideCoverageBucket, guideClockMillis / 600_000L, sportsSelected) {
-        if (state.snapshot.loadedAt.toEpochMilli() <= 0L) return@LaunchedEffect
-        val scanVersion = listOf(state.snapshot.loadedAt, state.epgBackfillInProgress, sportsRefresh,
-            sportsGuideCoverageBucket, guideClockMillis / 600_000L)
-        if (completedSportsScan == scanVersion && (!sportsSelected || sportsEvents.isNotEmpty())) return@LaunchedEffect
+    LaunchedEffect(sportsScheduleKey, sportsRefresh, sportsSelected) {
+        if (!sportsSelected || state.snapshot.loadedAt.toEpochMilli() <= 0L) return@LaunchedEffect
+        val scanVersion = sportsScheduleKey to sportsRefresh
+        if (completedSportsScan == scanVersion) return@LaunchedEffect
         viewModel.cachedSportsSchedule?.takeIf { it.key == sportsScheduleKey && sportsRefresh == 0 }?.let {
             sportsEvents = it.events
             completedSportsScan = scanVersion
@@ -2103,7 +2089,7 @@ fun LiveTvScreen(
                     if (!shouldWaitForSportsGuide(
                             indexedGuideChannelCount = indexedIds.size,
                             inMemoryGuideChannelCount = inMemoryGuideCount,
-                            largePlaylist = state.snapshot.channels.size > 10_000,
+                            largePlaylist = state.snapshot.totalChannelCount > 10_000,
                         )) {
                         guideReady = true
                         break
@@ -2205,7 +2191,8 @@ fun LiveTvScreen(
         sportsDisplayEventsRaw.map { it.copy(addonSources = it.addonSources.filter { source -> source.installation in allowed }) }
     }
     val sportsCatalogueComplete = completedSportsScan != null && !sportsLoading && !sportsBroadcastLoading && !sportsCatalogueLoading
-    LaunchedEffect(illustratedSportsEvents, sportsCatalogueComplete, sportsScheduleKey) {
+    LaunchedEffect(sportsSelected, illustratedSportsEvents, sportsCatalogueComplete, sportsScheduleKey) {
+        if (!sportsSelected) return@LaunchedEffect
         if (sportsCatalogueComplete && illustratedSportsEvents.any { it.hasChannels(guideClockMillis) }) {
             viewModel.saveSportsCatalogue(SportsScheduleSnapshot(sportsScheduleKey, illustratedSportsEvents.filter { it.hasChannels(guideClockMillis) }))
         }
@@ -2909,11 +2896,13 @@ fun LiveTvScreen(
                     channelGroup = channel.source.group,
                 )
                 if (!programActionLookupGuard.isCurrent(lookupGeneration)) return@launch
+                val currentProgram = viewModel.uiState.value.snapshot.nowNext[channel.id]?.now
+                    ?: currentProgramForAction(channel)
+                if (!programActionLookupGuard.isCurrent(lookupGeneration)) return@launch
                 if (
                     !epgVodLookupCanPublish(
                         selectedProgram = program,
-                        currentProgram = viewModel.uiState.value.snapshot.nowNext[channel.id]?.now
-                            ?: currentProgramForAction(channel),
+                        currentProgram = currentProgram,
                         nowMillis = System.currentTimeMillis(),
                     )
                 ) return@launch
@@ -4090,11 +4079,11 @@ fun LiveTvScreen(
         liveRetuneSignal++
     }
     BackHandler(enabled = !searchOpen && variantPickerChannel != null) { variantPickerChannel = null }
-    BackHandler(enabled = !searchOpen && isFullScreen && fullscreenGuideOpen) {
-        fullscreenGuideOpen = false
-    }
-    BackHandler(enabled = !searchOpen && isFullScreen && !fullscreenGuideOpen) {
-        if (hudEngaged) {
+    BackHandler(enabled = !searchOpen && isFullScreen && !quickZapOpen) {
+        if (fullscreenGuideOpen) {
+            fullscreenGuideOpen = false
+            hudPokeSignal++
+        } else if (hudEngaged) {
             hudEngaged = false
             hudHideSignal++
         } else if (playingCatchupProgram != null) {
@@ -4769,22 +4758,6 @@ fun LiveTvScreen(
             if (fsProgress > 0f && playingChannel != null) {
                 val depthScale = 0.92f + 0.08f * fsProgress
 
-                BackHandler(enabled = isFullScreen) {
-                    if (fullscreenGuideOpen) {
-                        fullscreenGuideOpen = false
-                        hudPokeSignal++
-                    } else if (!quickZapOpen) {
-                        if (hudEngaged) {
-                            hudEngaged = false
-                            hudHideSignal++
-                        } else if (playingCatchupProgram != null) {
-                            returnCatchupToLive()
-                        } else {
-                            exitFullScreenPlayback()
-                        }
-                    }
-                }
-
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -4964,6 +4937,7 @@ fun LiveTvScreen(
                         view.subtitleView?.visibility =
                             if (liveAiShows) android.view.View.INVISIBLE else android.view.View.VISIBLE
                     },
+                    onRelease = { view -> view.player = null },
                     modifier = Modifier.fillMaxSize(),
                 )
                 if (isFullScreen && !fullscreenGuideOpen && !quickZapOpen && liveAiShows) {
@@ -5172,7 +5146,7 @@ fun LiveTvScreen(
                     visible = isFullScreen && quickZapOpen,
                     currentChannel = playingChannel,
                     channels = filteredChannels,
-                    nowNextMap = actionGuideNowNext,
+                    nowNextForChannel = { id -> actionWindowGuide[id] ?: actionSnapshotGuide[id] },
                     categoriesTree = visibleEnrichedState.value.tree,
                     selectedCategoryId = selectedCategoryId,
                     onCategorySelected = { selectedCategoryId = it },

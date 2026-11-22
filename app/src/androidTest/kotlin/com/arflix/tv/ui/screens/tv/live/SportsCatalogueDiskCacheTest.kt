@@ -22,7 +22,7 @@ class SportsCatalogueDiskCacheTest {
             assertTrue(file.length() < 12_000_000L)
             val recreated = SportsCatalogueDiskCache(file)
             assertEquals(events, recreated.read(key))
-            assertEquals(events, recreated.read(key.copy(guideCoverage = 2, epgBackfill = true, window = 2)))
+            assertEquals(events, recreated.read(key.copy(hasGuide = true, epgBackfill = true, window = 2)))
             assertTrue(recreated.read(key.copy(profileId = "profile-b")).isEmpty())
             assertTrue(recreated.read(key.copy(providerId = "provider-b")).isEmpty())
             assertTrue(recreated.read(key.copy(sourceVersion = 5678)).isEmpty())

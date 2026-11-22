@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -81,6 +83,27 @@ class ProfileManager @Inject constructor(
         _currentProfileId.value = id
         _currentProfileName.value = active?.name?.lowercase()?.trim().takeUnless { it.isNullOrBlank() }
             ?: id
+        initialized = true
+    }
+
+    // Guards [initialize] so concurrent callers (app startup racing a WorkManager wake)
+    // share one DataStore read instead of clobbering each other's result.
+    private val initMutex = Mutex()
+
+    @Volatile
+    private var initialized = false
+
+    /**
+     * Runs [initialize] once per process. Background entries that never open an
+     * activity (WorkManager waking the process) must call this before any
+     * [getProfileIdSync]-scoped work, or every key resolves to the default profile.
+     */
+    suspend fun ensureInitialized() {
+        if (initialized) return
+        initMutex.withLock {
+            if (initialized) return
+            initialize()
+        }
     }
 
     /**

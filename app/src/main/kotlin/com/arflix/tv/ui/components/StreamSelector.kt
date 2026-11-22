@@ -7,6 +7,7 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.mutableFloatStateOf
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -76,6 +77,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -411,14 +414,20 @@ fun StreamSelector(
     val focusRequester = remember { FocusRequester() }
     val pluginPrefix = stringResource(R.string.plugin_prefix)
 
-    var elapsedSeconds by remember { mutableIntStateOf(0) }
-    LaunchedEffect(streamSearchStartTime) {
-        if (streamSearchStartTime > 0L) {
-            elapsedSeconds = 0
+    val isSearching = isLoading || pluginScrapersLoading || (totalAddons > 0 && completedAddons < totalAddons)
+    var elapsedSeconds by remember(streamSearchStartTime) { mutableIntStateOf(0) }
+    LaunchedEffect(streamSearchStartTime, isVisible, isSearching) {
+        if (isVisible && isSearching && streamSearchStartTime > 0L) {
             while (true) {
-                kotlinx.coroutines.delay(1000L)
                 elapsedSeconds = ((System.currentTimeMillis() - streamSearchStartTime) / 1000).toInt()
+                kotlinx.coroutines.delay(1000L)
             }
+        }
+    }
+
+    LaunchedEffect(isVisible, showSourceFilterDialog) {
+        if (isVisible && !showSourceFilterDialog && !isMobile) {
+            runCatching { focusRequester.requestFocus() }
         }
     }
 
@@ -469,8 +478,18 @@ fun StreamSelector(
     val sourceCount = remember(streams) { streams.count { !isAddonNoticeRow(it) } }
     val unknownSourceLabel = stringResource(R.string.stream_unknown_source)
     val badgeLanguage = preferredAudioLanguage ?: configuration.locales[0]?.language
-    val presentations = remember(streams, unknownSourceLabel, badgeLanguage, mediaTitle) {
-        streams.map { presentSource(it, unknownSourceLabel, badgeLanguage, mediaTitle) }
+    val presentations = key(streamSearchStartTime, unknownSourceLabel, badgeLanguage, mediaTitle) {
+        val cache = remember { SourcePresentationCache<SourcePresentation>() }
+        produceState<List<SourcePresentation>>(emptyList(), streams) {
+            val previous = cache.entries
+            val updated = withContext(Dispatchers.Default) {
+                previous.updateSourcePresentations(streams) {
+                    presentSource(it, unknownSourceLabel, badgeLanguage, mediaTitle)
+                }
+            }
+            cache.entries = updated
+            value = streams.map { updated.getValue(it) }
+        }.value
     }
 
     // Source ordering follows user addon order first. Within each addon, show the
@@ -536,18 +555,9 @@ fun StreamSelector(
                 sourceTabId(it.stream) == selectedAddonId
             }
         }
-        addonFiltered
-            .filter { sourceFilterMatches(it, selectedFilter) }
-            .filter { sourceMatchesQuery(it.stream, sourceQuery) }
-    }
-
-    // Group streams by addon for display
-    val groupedStreams = remember(filteredPresentations) {
-        val labelById = addonTabs.associateBy({ it.id }, { it.label })
-        filteredPresentations.groupBy {
-            val tabId = sourceTabId(it.stream)
-            labelById[tabId] ?: it.addonLabel
-        }
+        val qualityFiltered = addonFiltered.filter { sourceFilterMatches(it, selectedFilter) }
+        val tokens = sourceQueryTokens(sourceQuery)
+        if (tokens.isEmpty()) qualityFiltered else qualityFiltered.filter { sourceMatchesTokens(it.stream, tokens) }
     }
 
     // Flatten for navigation
@@ -1347,6 +1357,17 @@ private fun OledSourceSelectorTv(
 }
 
 @androidx.compose.runtime.Immutable
+private class SourcePresentationCache<T : Any> {
+    var entries: Map<StreamSource, T> = emptyMap()
+}
+
+internal fun <T : Any> Map<StreamSource, T>.updateSourcePresentations(
+    streams: List<StreamSource>,
+    present: (StreamSource) -> T
+): Map<StreamSource, T> = buildMap {
+    streams.forEach { stream -> getOrPut(stream) { this@updateSourcePresentations[stream] ?: present(stream) } }
+}
+
 private data class SourcePresentation(
     val stream: StreamSource,
     val title: String,
@@ -1535,10 +1556,15 @@ private fun sourceFilterMatches(presentation: SourcePresentation, selectedFilter
  * Matching the addon's own labels too keeps quality/size words usable as filters ("lat 1080").
  * Every whitespace-separated token has to match, so several words narrow instead of widening.
  */
-internal fun sourceMatchesQuery(stream: StreamSource, query: String): Boolean {
-    val tokens = query.trim().lowercase(Locale.ROOT)
-        .split(Regex("\\s+"))
-        .filter { it.isNotEmpty() }
+internal fun sourceMatchesQuery(stream: StreamSource, query: String): Boolean =
+    sourceMatchesTokens(stream, sourceQueryTokens(query))
+
+private fun sourceQueryTokens(query: String): List<String> {
+    if (query.isBlank()) return emptyList()
+    return query.trim().lowercase(Locale.ROOT).split(StreamRegexes.WHITESPACE)
+}
+
+private fun sourceMatchesTokens(stream: StreamSource, tokens: List<String>): Boolean {
     if (tokens.isEmpty()) return true
     val haystack = buildString {
         append(stream.source); append(' ')

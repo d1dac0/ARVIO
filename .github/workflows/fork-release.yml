@@ -1,6 +1,6 @@
 name: Fork release
 
-# Builds a signed sideload APK from this fork and publishes it as a GitHub
+# Builds signed sideload APKs from this fork and publishes them as a GitHub
 # release so the in-app updater (BuildConfig.GITHUB_OWNER/GITHUB_REPO) and
 # Obtainium can pick it up. The APK is signed with the fork's own keystore, so
 # it updates fork builds in place - it cannot update an installation signed by
@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   release:
-    name: Build signed APK and publish release
+    name: Build signed APKs and publish release
     runs-on: ubuntu-latest
 
     steps:
@@ -89,7 +89,7 @@ jobs:
             "keyPassword=$KEY_PASSWORD" \
             > keystore.properties
 
-      - name: Build signed release APK
+      - name: Build signed release APKs
         env:
           # Optional: supply real integration credentials as repository secrets and
           # they take priority over the placeholders in secrets.defaults.properties.
@@ -105,22 +105,48 @@ jobs:
           ./gradlew assembleSideloadRelease --no-daemon \
             -ParvioVersionCode=${{ steps.version.outputs.code }} \
             -ParvioVersionName=${{ steps.version.outputs.name }} \
-            -ParvioAllowMissingIntegrations=true
+            -ParvioAllowMissingIntegrations=true \
+            -ParvioForkReleaseAbiSplits=true
 
-      - name: Verify signing certificate
+      - name: Verify and name release APKs
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
         run: |
           set -euo pipefail
-          mapfile -t APKS < <(find app/build/outputs/apk/sideload/release -maxdepth 1 -name '*.apk' -type f)
-          test "${#APKS[@]}" -eq 1 || {
-            echo "Expected exactly one APK, got ${#APKS[@]}:"
-            printf '%s\n' "${APKS[@]}"
-            exit 1
-          }
-          APK="${APKS[0]}"
+          OUTPUT_DIR=app/build/outputs/apk/sideload/release
+          METADATA="$OUTPUT_DIR/output-metadata.json"
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner -type f | sort -V | tail -n1)
-          "$APKSIGNER" verify --print-certs "$APK" | grep -E 'SHA-256|DN'
+          : "${APKSIGNER:?Android apksigner not found}"
+
+          jq -e '
+            (.elements | map([.filters[] | select(.filterType == "ABI") | .value])) |
+            sort == [[], ["arm64-v8a"], ["armeabi-v7a"]]
+          ' "$METADATA" > /dev/null
+          jq -e --argjson versionCode "$VERSION_CODE" '
+            all(.elements[]; .versionCode == $versionCode)
+          ' "$METADATA" > /dev/null
+
           mkdir -p dist
-          cp "$APK" "dist/ARVIO-${{ steps.version.outputs.name }}-sideload-release.apk"
+          for abi in armeabi-v7a arm64-v8a universal; do
+            output=$(jq -er --arg abi "$abi" '
+              .elements[] |
+              select(([.filters[] | select(.filterType == "ABI") | .value][0] // "universal") == $abi) |
+              .outputFile
+            ' "$METADATA")
+            apk="$OUTPUT_DIR/$output"
+            "$APKSIGNER" verify --print-certs "$apk"
+            packaged_abis=$(unzip -Z1 "$apk" | awk -F/ '$1 == "lib" && $3 ~ /[.]so$/ {print $2}' | sort -u)
+            expected_abis="$abi"
+            if [[ "$abi" == universal ]]; then
+              expected_abis=$'arm64-v8a\narmeabi-v7a'
+            fi
+            if [[ "$packaged_abis" != "$expected_abis" ]]; then
+              printf 'Unexpected native ABIs in %s:\n%s\n' "$apk" "$packaged_abis"
+              exit 1
+            fi
+            cp "$apk" "dist/ARVIO-$RELEASE_VERSION-sideload-$abi-release.apk"
+          done
 
       - name: Publish GitHub release
         env:
@@ -129,7 +155,7 @@ jobs:
           set -euo pipefail
           NOTES=$(git log -1 --pretty=%B)
           gh release create "${{ steps.version.outputs.tag }}" \
-            dist/ARVIO-${{ steps.version.outputs.name }}-sideload-release.apk \
+            dist/*.apk \
             --title "ARVIO ${{ steps.version.outputs.name }}" \
             --notes "$NOTES" \
             --latest

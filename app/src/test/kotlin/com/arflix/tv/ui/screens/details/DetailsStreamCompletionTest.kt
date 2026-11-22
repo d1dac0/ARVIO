@@ -29,6 +29,27 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DetailsStreamCompletionTest {
+
+    /**
+     * The view model sorts each merged source batch on Dispatchers.Default, so the
+     * write that stops the spinner only re-queues onto the test scheduler once the
+     * real worker has finished the sort. Pump the scheduler (yielding real time so
+     * the worker can finish) until the expected spinner state is visible, then let
+     * the assertions check it.
+     */
+    private fun kotlinx.coroutines.test.TestScope.awaitSpinnerState(
+        model: DetailsViewModel,
+        expected: Boolean
+    ) {
+        var waited = 0
+        while (model.uiState.value.isLoadingStreams != expected && waited < 5_000) {
+            Thread.sleep(1)
+            runCurrent()
+            waited++
+        }
+        runCurrent()
+    }
+
     @Test
     fun `view model stops spinner only after the last empty provider in every order`() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
@@ -96,6 +117,7 @@ class DetailsStreamCompletionTest {
                     for ((position, slot) in order.withIndex()) {
                         gates[slot].complete(Unit)
                         runCurrent()
+                        awaitSpinnerState(model, position < 2)
                         assertEquals("Order $order after $slot", position < 2, model.uiState.value.isLoadingStreams)
                     }
                     assertTrue(model.uiState.value.streams.isEmpty())

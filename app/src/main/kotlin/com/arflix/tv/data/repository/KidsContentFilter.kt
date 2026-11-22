@@ -16,6 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,9 +31,10 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Provider
@@ -68,12 +70,15 @@ class KidsContentFilter @Inject constructor(
         val region: String,
         val ages: Map<String, Int>,
         /** [KidsTrustedTitles.key]s approved only when no certification exists. */
-        val trusted: Set<String> = emptySet()
+        val trusted: Set<String> = emptySet(),
+        val isPolicyLoading: Boolean = false,
+        val profileId: String? = null
     ) {
-        val isActive: Boolean get() = level != null
+        val isActive: Boolean get() = isPolicyLoading || level != null
 
         /** True when [item] may be shown. Unknown titles never pass. */
         fun allows(item: MediaItem): Boolean {
+            if (isPolicyLoading) return item.isPlaceholder
             val cap = level ?: return true
             if (item.isPlaceholder || isCollectionTile(item)) return true
             // A parent picked every video of the profile's own YouTube row; there is no rating to look up.
@@ -90,32 +95,41 @@ class KidsContentFilter @Inject constructor(
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val ages = MutableStateFlow(loadAges())
+    private val prefs by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+    private val ages = MutableStateFlow<Map<String, Int>>(emptyMap())
+    private val storageMutex = Mutex()
+    private val storedKeys = scope.async {
+        val entries = runCatching { prefs.all }.getOrElse { emptyMap() }
+        val cached = buildMap {
+            entries.forEach { (key, value) -> if (value is Int) put(key, value) }
+        }
+        ages.update { current -> if (current.isEmpty()) cached else cached + current }
+        entries.keys.toMutableSet()
+    }
     private val lookups = Channel<Pair<MediaType, Int>>(Channel.UNLIMITED)
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val pending = ConcurrentHashMap<String, Int>()
 
-    /**
-     * Read once, blocking, when the filter is created (the first kids-aware screen): a
-     * null start would show that screen unfiltered until the profile store answers, and
-     * Home's billboard keeps whatever title it picks in that moment.
-     */
-    private val initialLevel = runBlocking(Dispatchers.IO) {
-        withTimeoutOrNull(INITIAL_READ_TIMEOUT_MS) { profileRepository.getActiveProfile()?.kidsLevel }
-    }
-
     @OptIn(ExperimentalCoroutinesApi::class)
     private val policy = profileRepository.activeProfile.flatMapLatest { profile ->
         val level = profile?.kidsLevel
-        if (profile == null || level == null) flowOf(null to emptySet<String>())
-        else catalogRepository.observeKidsListApprovals(profile.id).map { level to it }
-            .onStart { emit(level to emptySet()) }
+        if (profile == null || level == null) flowOf(Triple(profile?.id, null, emptySet<String>()))
+        else {
+            storedKeys.await()
+            catalogRepository.observeKidsListApprovals(profile.id).map { Triple(profile.id, level, it) }
+                .onStart { emit(Triple(profile.id, level, emptySet())) }
+        }
     }
 
-    val state: StateFlow<State> = combine(policy, ages) { (level, approved), ages ->
-        State(level, region(), ages, approved)
-    }.stateIn(scope, SharingStarted.Eagerly, State(initialLevel, region(), ages.value))
+    val state: StateFlow<State> = combine(policy, ages) { (profileId, level, approved), ages ->
+        val region = if (level != null) region() else ContentRating.regionOf(null)
+        State(level, region, ages, approved, profileId = profileId)
+    }.stateIn(
+        scope,
+        SharingStarted.Eagerly,
+        // Keep titles hidden until we know which policy applies.
+        State(null, ContentRating.regionOf(null), emptyMap(), isPolicyLoading = true)
+    )
 
     init {
         scope.launch { runLookups() }
@@ -228,7 +242,7 @@ class KidsContentFilter @Inject constructor(
         }
     }
 
-    private fun record(key: String, age: Int) {
+    private suspend fun record(key: String, age: Int) {
         ages.update { it + (key to age) }
         persist(mapOf(key to age))
     }
@@ -258,15 +272,18 @@ class KidsContentFilter @Inject constructor(
     private fun region(): String =
         ContentRating.regionOf(runCatching { mediaRepository.get().contentLanguage }.getOrNull())
 
-    private fun loadAges(): Map<String, Int> = runCatching {
-        prefs.all.mapNotNull { (key, value) -> (value as? Int)?.let { key to it } }.toMap()
-    }.getOrElse { emptyMap() }
-
-    private fun persist(batch: Map<String, Int>) {
-        val editor = prefs.edit()
-        if (prefs.all.size + batch.size > MAX_STORED) editor.clear()
-        batch.forEach { (key, age) -> editor.putInt(key, age) }
-        editor.apply()
+    private suspend fun persist(batch: Map<String, Int>) = withContext(Dispatchers.IO) {
+        val keys = storedKeys.await()
+        storageMutex.withLock {
+            val editor = prefs.edit()
+            if (keys.size + batch.keys.count { it !in keys } > MAX_STORED) {
+                editor.clear()
+                keys.clear()
+            }
+            batch.forEach { (key, age) -> editor.putInt(key, age) }
+            editor.apply()
+            keys.addAll(batch.keys)
+        }
     }
 
     companion object {
@@ -276,7 +293,6 @@ class KidsContentFilter @Inject constructor(
         private const val LOOKUP_PARALLELISM = 6
         private const val FLUSH_INTERVAL_MS = 300L
         private const val MAX_STORED = 20_000
-        private const val INITIAL_READ_TIMEOUT_MS = 1_000L
         const val UNRATED = -1
         internal const val NO_CERTIFICATION = -2
 

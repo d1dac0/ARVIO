@@ -787,10 +787,6 @@ fun SettingsScreen(
     }
 
     val focusRequester = remember { FocusRequester() }
-    val scrollState = key(sectionIndex, showIptvCategoriesSettings) { rememberScrollState() }
-    val sectionScrollState = rememberScrollState()
-    val focusTracker = remember(sectionIndex, showIptvCategoriesSettings) { SettingsFocusTracker() }
-    val sectionFocusTracker = remember { SettingsFocusTracker() }
     val openSubtitlePicker = {
         viewModel.refreshSubtitleOptions()
         val options = uiState.subtitleOptions
@@ -880,91 +876,6 @@ fun SettingsScreen(
             val maxIndex = (options.size - 1).coerceAtLeast(0)
             val targetIndex = options.indexOfFirst { it.equals(uiState.dnsProvider, ignoreCase = true) }
             dnsProviderPickerIndex = if (targetIndex >= 0) targetIndex else dnsProviderPickerIndex.coerceIn(0, maxIndex)
-        }
-    }
-
-    // Reset content scroll AND position cache when switching sections.
-    LaunchedEffect(sectionIndex, uiState.catalogs.size) {
-        if (sections[sectionIndex] == "catalogs") {
-            contentFocusIndex = contentFocusIndex.coerceAtMost(uiState.catalogs.size + 2)
-        }
-    }
-
-    LaunchedEffect(sectionIndex, activeZone, sections.size) {
-        if (isTouchDevice || activeZone != Zone.SECTION) return@LaunchedEffect
-        androidx.compose.runtime.withFrameNanos { }
-        sectionFocusTracker.revealDelta(sectionIndex)?.let { delta ->
-            val target = (sectionScrollState.value + delta).toInt().coerceIn(0, sectionScrollState.maxValue)
-            if (target != sectionScrollState.value) sectionScrollState.animateScrollTo(target, tween(100, easing = FastOutSlowInEasing))
-            return@LaunchedEffect
-        }
-        val maxScroll = sectionScrollState.maxValue
-        if (maxScroll <= 0) return@LaunchedEffect
-        val maxIndex = sections.lastIndex.coerceAtLeast(1)
-        val ratio = sectionIndex.coerceIn(0, maxIndex).toFloat() / maxIndex.toFloat()
-        val targetScroll = (maxScroll * ratio).toInt().coerceIn(0, maxScroll)
-        if (abs(sectionScrollState.value - targetScroll) > 24) {
-            // Keep the transition short and cancellable. A long default spring
-            // makes rapid DPAD presses feel delayed and leaves the sidebar behind.
-            sectionScrollState.animateScrollTo(
-                targetScroll,
-                animationSpec = tween(100, easing = FastOutSlowInEasing)
-            )
-        }
-    }
-
-    // TV reveals measured rows; touch uses native bring-into-view. A new
-    // subpage gets its own tracker even if its first focused index is unchanged.
-    LaunchedEffect(
-        contentFocusIndex,
-        focusTracker,
-        sectionIndex,
-        activeZone,
-        uiState.catalogs.size,
-        uiState.addons.size
-    ) {
-        if (activeZone != Zone.CONTENT) return@LaunchedEffect
-        if (!isTouchDevice && sections[sectionIndex] == "catalogs") return@LaunchedEffect
-
-        if (!isTouchDevice) {
-            // Let newly selected sections attach; never retain detached coordinates.
-            androidx.compose.runtime.withFrameNanos { }
-            focusTracker.revealDelta(contentFocusIndex)?.let { delta ->
-                val target = (scrollState.value + delta).toInt().coerceIn(0, scrollState.maxValue)
-                if (target != scrollState.value) scrollState.animateScrollTo(target, tween(100, easing = FastOutSlowInEasing))
-                return@LaunchedEffect
-            }
-        }
-
-        val requester = focusTracker.requesters[contentFocusIndex]
-        if (requester != null && isTouchDevice) {
-            // Native branch — handles all geometry correctly.
-            runCatching { requester.bringIntoView() }
-            return@LaunchedEffect
-        }
-
-        // Fallback: legacy ratio heuristic, only when positions are unknown
-        // and scrolling is actually possible.
-        val maxScroll = scrollState.maxValue
-        val currentScroll = scrollState.value
-        if (maxScroll <= 0) return@LaunchedEffect
-        val currentSection = sections.getOrNull(sectionIndex).orEmpty()
-        val maxIndex = sectionMaxIndex(currentSection).coerceAtLeast(1)
-        val clampedFocus = contentFocusIndex.coerceIn(0, maxIndex)
-        val ratio = clampedFocus.toFloat() / maxIndex.toFloat()
-        val targetScroll = (maxScroll * ratio).toInt().coerceIn(0, maxScroll)
-        if (abs(currentScroll - targetScroll) > 24) {
-            if (isTouchDevice) {
-                scrollState.animateScrollTo(targetScroll)
-            } else {
-                // Settings uses a single, manually managed focus target on TV.
-                // A short animation keeps larger row jumps readable without
-                // building a long animation queue behind the remote input.
-                scrollState.animateScrollTo(
-                    targetScroll,
-                    animationSpec = tween(100, easing = FastOutSlowInEasing)
-                )
-            }
         }
     }
 
@@ -1892,673 +1803,757 @@ fun SettingsScreen(
                 } else false
             }
     ) {
-        if (isTouchDevice) {
-            MobileSettingsLayout(
-                page = mobilePage,
-                onNavigate = { mobilePage = it },
-                uiState = uiState,
-                viewModel = viewModel,
-                stremioAddons = stremioAddons,
-                onSwitchProfile = onSwitchProfile,
-                openContentLanguagePicker = openContentLanguagePicker,
-                openSubtitlePicker = openSubtitlePicker,
-                openSecondarySubtitlePicker = openSecondarySubtitlePicker,
-                openAudioLanguagePicker = openAudioLanguagePicker,
-                openDnsProviderPicker = openDnsProviderPicker,
-                openUiModeWarningDialog = openUiModeWarningDialog,
-                openQualityFiltersModal = { showQualityFiltersModal = true },
-                onSubtitleAiModelClick = { showAiModelDialog = true },
-                onSubtitleAiApiKeyClick = { showAiApiKeyDialog = true },
-                onSubtitleAiQrClick = { viewModel.startAiKeyServer() },
-                onAddIptvClick = { editingIptvIndex = -1; showIptvInput = true },
-                onEditIptvClick = { idx -> editingIptvIndex = idx; showIptvInput = true },
-                onAddStalkerPortal = {
-                    stalkerEditId = null
-                    stalkerEditPortal = ""
-                    stalkerEditMac = ""
-                    stalkerEditName = ""
-                    showStalkerInput = true
-                },
-                onEditStalkerPortal = { portal ->
-                    stalkerEditId = portal.id
-                    stalkerEditPortal = portal.portalUrl
-                    stalkerEditMac = portal.macAddress
-                    stalkerEditName = portal.name
-                    showStalkerInput = true
-                },
-                onAddCatalogClick = { showCatalogInput = true },
-                onImportCatalogPackClick = { showCatalogPackInput = true },
-                onRenameCatalogClick = { catalog ->
-                    if (catalog.sourceType == CatalogSourceType.YOUTUBE) {
-                        youTubeManagerCatalogId = catalog.id
-                    } else {
-                        openCatalogEditor(catalog)
-                    }
-                },
-                onDeleteCatalogClick = { catalog ->
-                    if (catalog.isBulkDeletablePack) {
-                        deletePackId = catalog.effectivePackId
-                        deletePackName = catalog.effectivePackName
-                        showDeletePackConfirm = true
-                    } else {
-                        viewModel.removeCatalog(catalog.id)
-                    }
-                },
-                onConnectHomeServerClick = {
-                    val connection = uiState.homeServerConnection
-                    homeServerUrl = connection?.serverUrl.orEmpty()
-                    homeServerDisplayName = connection?.displayName.orEmpty()
-                    homeServerUsername = connection?.userName.orEmpty()
-                    homeServerPassword = ""
-                    showHomeServerInput = true
-                },
-                onConnectPlexHomeServerClick = {
-                    plexHomeServerDisplayName = ""
-                    plexHomeServerUrl = ""
-                    showPlexHomeServerInput = true
-                },
-                onAddCustomAddonClick = { showCustomAddonInput = true },
-                onBrowseCommunityAddonsClick = { showCommunityAddons = true },
-                openCustomUserAgentDialog = { showCustomUserAgentDialog = true },
-                onNavigateToTelegram = onNavigateToTelegramSettings,
-                onDisconnectCloud = { showCloudDisconnectConfirm = true },
-                onDisconnectTrakt = { showTraktDisconnectConfirm = true }
-            )
-        } else {
-            AppTopBar(
-                selectedItem = SidebarItem.SETTINGS,
-                isFocused = activeZone == Zone.SIDEBAR,
-                focusedIndex = sidebarFocusIndex,
-                profile = currentProfile
-            )
+        SettingsPanes {
+            val scrollState = key(sectionIndex, showIptvCategoriesSettings) { rememberScrollState() }
+            val sectionScrollState = rememberScrollState()
+            val focusTracker = remember(sectionIndex, showIptvCategoriesSettings) { SettingsFocusTracker() }
+            val sectionFocusTracker = remember { SettingsFocusTracker() }
+            // Reset content scroll AND position cache when switching sections.
+            LaunchedEffect(sectionIndex, uiState.catalogs.size) {
+                if (sections[sectionIndex] == "catalogs") {
+                    contentFocusIndex = contentFocusIndex.coerceAtMost(uiState.catalogs.size + 2)
+                }
+            }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = AppTopBarContentTopInset)
-                    .padding(start = 34.dp, end = 42.dp, bottom = 28.dp)
-            ) {
-                // Settings internal sidebar
-                Column(
-                    modifier = Modifier
-                        .width(204.dp)
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF050505))
-                        .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(16.dp))
-                        .padding(vertical = 18.dp, horizontal = 10.dp)
-                ) {
-                    val availableUpdate = uiState.updateStatus as? com.arflix.tv.updater.UpdateStatus.UpdateAvailable
-                    val awaitingCompilation = com.arflix.tv.ui.components.rememberAwaitingProfileCompilation()
-                    SettingsSidebarHeader(availableUpdate?.update?.tag, awaitingCompilation)
-
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .onGloballyPositioned { sectionFocusTracker.viewport = it }
-                            .verticalScroll(sectionScrollState)
-                    ) {
-                        sections.forEachIndexed { index, section ->
-                            val group = tvSettingsSidebarGroup(section)
-                            val previousGroup = sections.getOrNull(index - 1)?.let { tvSettingsSidebarGroup(it) }
-                            if (index == 0 || group != previousGroup) {
-                                SettingsSectionGroupLabel(group)
-                                Spacer(modifier = Modifier.height(6.dp))
-                            }
-                            SettingsSectionItem(
-                                modifier = Modifier.onGloballyPositioned { sectionFocusTracker.coordinates[index] = it },
-                                icon = when (section) {
-                                    "language" -> Icons.Default.Language
-                                    "subtitles" -> Icons.Default.Subtitles
-                                    "ai_subtitles" -> Icons.Default.AutoAwesome
-                                    "playback" -> Icons.Default.PlayArrow
-                                    "appearance" -> Icons.Default.Palette
-                                    "profiles" -> Icons.Default.SwitchAccount
-                                    "network" -> Icons.Default.Settings
-                                    "stream_integrations" -> Icons.Default.Tune
-                                    "iptv" -> Icons.Default.LiveTv
-                                    "home_server" -> Icons.Default.Cloud
-                                    "catalogs" -> Icons.Default.Widgets
-                                    "stremio" -> Icons.Default.Extension
-                                    "accounts" -> Icons.Default.Person
-                                    else -> Icons.Default.Settings
-                                },
-                                title = when (section) {
-                                    "language" -> stringResource(R.string.language_and_audio)
-                                    "subtitles" -> stringResource(R.string.subtitles)
-                                    "ai_subtitles" -> stringResource(R.string.ai_subtitles_section)
-                                    "playback" -> stringResource(R.string.playback)
-                                    "appearance" -> stringResource(R.string.interface_label)
-                                    "profiles" -> stringResource(R.string.profiles)
-                                    "network" -> stringResource(R.string.network)
-                                    "stream_integrations" -> stringResource(R.string.settings_stream_integrations)
-                                    "iptv" -> stringResource(R.string.iptv)
-                                    "home_server" -> stringResource(R.string.settings_home_server)
-                                    "catalogs" -> stringResource(R.string.catalogs)
-                                    "stremio" -> stringResource(R.string.addons)
-                                    "accounts" -> stringResource(R.string.accounts)
-                                    else -> section.replaceFirstChar { it.uppercase() }
-                                },
-                                isSelected = sectionIndex == index,
-                                isFocused = activeZone == Zone.SECTION && sectionIndex == index,
-                                onClick = {
-                                    sectionIndex = index
-                                    contentFocusIndex = 0
-                                    integrationActionIndex = 0
-                                    iptvActionIndex = 0
-                                    iptvHeldGroup = null
-                                    showIptvCategoriesSettings = false
-                                    activeZone = Zone.SECTION
-                                }
-                            )
-
-                            Spacer(modifier = Modifier.height(6.dp))
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        text = stringResource(R.string.settings_app_version_label, BuildConfig.VERSION_NAME),
-                        style = ArflixTypography.caption,
-                        color = TextSecondary.copy(alpha = 0.5f),
-                        modifier = Modifier.padding(start = 8.dp)
+            LaunchedEffect(sectionIndex, activeZone, sections.size) {
+                if (isTouchDevice || activeZone != Zone.SECTION) return@LaunchedEffect
+                androidx.compose.runtime.withFrameNanos { }
+                sectionFocusTracker.revealDelta(sectionIndex)?.let { delta ->
+                    val target = (sectionScrollState.value + delta).toInt().coerceIn(0, sectionScrollState.maxValue)
+                    if (target != sectionScrollState.value) sectionScrollState.animateScrollTo(target, tween(100, easing = FastOutSlowInEasing))
+                    return@LaunchedEffect
+                }
+                val maxScroll = sectionScrollState.maxValue
+                if (maxScroll <= 0) return@LaunchedEffect
+                val maxIndex = sections.lastIndex.coerceAtLeast(1)
+                val ratio = sectionIndex.coerceIn(0, maxIndex).toFloat() / maxIndex.toFloat()
+                val targetScroll = (maxScroll * ratio).toInt().coerceIn(0, maxScroll)
+                if (abs(sectionScrollState.value - targetScroll) > 24) {
+                    // Keep the transition short and cancellable. A long default spring
+                    // makes rapid DPAD presses feel delayed and leaves the sidebar behind.
+                    sectionScrollState.animateScrollTo(
+                        targetScroll,
+                        animationSpec = tween(100, easing = FastOutSlowInEasing)
                     )
                 }
+            }
 
-                // Content area
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxSize()
-                        .testTag("settings-content")
-                        .onGloballyPositioned { focusTracker.viewport = it }
-                        .then(if (sections[sectionIndex] == "catalogs") Modifier else Modifier.verticalScroll(scrollState))
-                        .padding(start = 28.dp)
-                ) {
-                  if (sections[sectionIndex] != "catalogs") {
-                    TvSettingsSectionHeader(
-                        section = sections[sectionIndex],
-                        uiState = uiState,
-                        addonCount = stremioAddons.size
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                  }
-                  CompositionLocalProvider(LocalSettingsFocusTracker provides focusTracker) {
-                    when (sections[sectionIndex]) {
-                        in tvGeneralSectionIds -> {
-                        TvGeneralSettingsRows(
-                            section = sections[sectionIndex],
-                            defaultSubtitle = uiState.defaultSubtitle,
-                            secondarySubtitle = uiState.secondarySubtitle,
-                            defaultAudioLanguage = uiState.defaultAudioLanguage,
-                            dnsProvider = uiState.dnsProvider,
-                            cardLayoutMode = uiState.cardLayoutMode,
-                            frameRateMatchingMode = uiState.frameRateMatchingMode,
-                            autoPlayNext = uiState.autoPlayNext,
-                            autoPlaySingleSource = uiState.autoPlaySingleSource,
-                            autoPlayMinQuality = uiState.autoPlayMinQuality,
-                            autoPlayMaxQuality = uiState.autoPlayMaxQuality,
-                            autoPlayMaxSizeGb = uiState.autoPlayMaxSizeGb,
-                            contentLanguage = uiState.contentLanguage,
-                            subtitleSize = uiState.subtitleSize,
-                            subtitleColor = uiState.subtitleColor,
-                            subtitleOffset = uiState.subtitleOffset,
-                            subtitleStyle = uiState.subtitleStyle,
-                            subtitleFont = uiState.subtitleFont,
-                            subtitleStylized = uiState.subtitleStylized,
-                            deviceModeOverride = uiState.deviceModeOverride,
-                            skipProfileSelection = uiState.skipProfileSelection,
-                            oledBlackBackground = uiState.oledBlackBackground,
-                            clockFormat = uiState.clockFormat,
-                            showBudget = uiState.showBudget,
-                            volumeBoostDb = uiState.volumeBoostDb,
-                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                            onSubtitleClick = openSubtitlePicker,
-                            onSecondarySubtitleClick = openSecondarySubtitlePicker,
-                            onAudioLanguageClick = openAudioLanguagePicker,
-                            onCardLayoutToggle = { viewModel.toggleCardLayoutMode() },
-                            onFrameRateMatchingClick = { viewModel.cycleFrameRateMatchingMode() },
-                            onDnsProviderClick = openDnsProviderPicker,
-                            onAutoPlayToggle = { viewModel.setAutoPlayNext(it) },
-                            onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
-                            onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
-                            onAutoPlayMaxQualityClick = { viewModel.cycleAutoPlayMaxQuality() },
-                            onAutoPlayMaxSizeClick = { viewModel.cycleAutoPlayMaxSize() },
-                            trailerAutoPlay = uiState.trailerAutoPlay,
-                            onTrailerAutoPlayToggle = { viewModel.setTrailerAutoPlay(it) },
-                            trailerSoundEnabled = uiState.trailerSoundEnabled,
-                            onTrailerSoundEnabledToggle = { viewModel.setTrailerSoundEnabled(it) },
-                            trailerInCards = uiState.trailerInCards,
-                            onTrailerInCardsToggle = { viewModel.setTrailerInCards(it) },
-                            netflixHomeStyle = uiState.netflixHomeStyle,
-                            onNetflixHomeStyleToggle = { viewModel.setNetflixHomeStyle(it) },
-                            watchlistOnHome = uiState.watchlistOnHome,
-                            onWatchlistOnHomeToggle = viewModel::setWatchlistOnHome,
-                            trailerDelaySeconds = uiState.trailerDelaySeconds,
-                            onTrailerDelayClick = { viewModel.cycleTrailerDelay() },
-                            guideRowCount = uiState.guideRowCount,
-                            onGuideRowCountClick = { viewModel.cycleGuideRowCount() },
-                            onDeviceModeClick = openUiModeWarningDialog,
-                            onContentLanguageClick = openContentLanguagePicker,
-                            onSkipProfileSelectionToggle = { viewModel.setSkipProfileSelection(it) },
-                            onOledBlackBackgroundToggle = { viewModel.setOledBlackBackground(it) },
-                            onClockFormatClick = { viewModel.cycleClockFormat() },
-                            onShowBudgetToggle = { viewModel.setShowBudget(it) },
-                            showEpisodeRatings = uiState.showEpisodeRatings,
-                            onShowEpisodeRatingsToggle = { viewModel.setShowEpisodeRatings(it) },
-                            animeStructuringStyle = uiState.animeStructuringStyle,
-                            onAnimeStructuringStyleToggle = { viewModel.cycleAnimeStructuringStyle() },
-                            smoothScrolling = uiState.smoothScrolling,
-                            onSmoothScrollingToggle = { viewModel.setSmoothScrolling(it) },
-                            spoilerBlurEnabled = uiState.spoilerBlurEnabled,
-                            onSpoilerBlurToggle = { viewModel.setSpoilerBlurEnabled(it) },
-                            accentColor = uiState.accentColor,
-                            onAccentColorClick = { viewModel.cycleAccentColor() },
-                            showLoadingStats = uiState.showLoadingStats,
-                            onShowLoadingStatsToggle = { viewModel.setShowLoadingStats(it) },
-                            onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
-                            onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
-                            onSubtitleColorClick = { viewModel.cycleSubtitleColor() },
-                            onSubtitleOffsetClick = { viewModel.cycleSubtitleOffset() },
-                            onSubtitleStyleClick = { viewModel.cycleSubtitleStyle() },
-                            onSubtitleFontClick = { viewModel.cycleSubtitleFont() },
-                            onSubtitleStylizedToggle = { viewModel.toggleSubtitleStylized() },
-                            filterSubtitlesByLanguage = uiState.filterSubtitlesByLanguage,
-                            onFilterSubtitlesByLanguageToggle = { viewModel.setFilterSubtitlesByLanguage(it) },
-                            useForcedSubtitles = uiState.useForcedSubtitles,
-                            onUseForcedSubtitlesToggle = { viewModel.setUseForcedSubtitles(it) },
-                            qualityFilterValue = uiState.qualityFilterPresetLabel,
-                            onQualityFiltersClick = { showQualityFiltersModal = true },
-                            subtitleAiEnabled = uiState.subtitleAiEnabled,
-                            subtitleAiAutoSelect = uiState.subtitleAiAutoSelect,
-                            subtitleAiFindBestMatch = uiState.subtitleAiFindBestMatch,
-                            subtitleHearingSync = uiState.subtitleHearingSync,
-                            subtitleHearingSyncLowMemory = uiState.subtitleHearingSyncLowMemory,
-                            subtitlePreloadEnabled = uiState.subtitlePreloadEnabled,
-                            dolbyVisionCompatEnabled = uiState.dolbyVisionCompatEnabled,
-                            subtitleAiApiKey = uiState.subtitleAiApiKey,
-                            subtitleAiModel = uiState.subtitleAiModel,
-                            subtitleRemoveHearingImpaired = uiState.subtitleRemoveHearingImpaired,
-                            onSubtitleAiEnabledToggle = { viewModel.setSubtitleAiEnabled(it) },
-                            onSubtitleAiModelClick = { showAiModelDialog = true },
-                            onSubtitleAiAutoSelectToggle = { viewModel.setSubtitleAiAutoSelect(it) },
-                            onSubtitleAiFindBestMatchToggle = { viewModel.setSubtitleAiFindBestMatch(it) },
-                            onSubtitleHearingSyncToggle = { viewModel.setSubtitleHearingSync(it) },
-                            onSubtitlePreloadToggle = { viewModel.setSubtitlePreloadEnabled(it) },
-                            onDolbyVisionCompatToggle = { viewModel.setDolbyVisionCompatEnabled(it) },
-                            onSubtitleRemoveHearingImpairedToggle = { viewModel.setSubtitleRemoveHearingImpaired(it) },
-                            onSubtitleAiApiKeyClick = { showAiApiKeyDialog = true },
-                            onSubtitleAiQrClick = { viewModel.startAiKeyServer() },
-                            customUserAgent = uiState.customUserAgent,
-                            onCustomUserAgentClick = { showCustomUserAgentDialog = true },
-                            playbackCacheLimitGb = uiState.playbackCacheLimitGb,
-                            playbackCacheUsedBytes = uiState.playbackCacheUsedBytes,
-                            playbackCacheMaxBytes = uiState.playbackCacheMaxBytes,
-                            onPlaybackCacheSizeClick = { viewModel.cyclePlaybackCacheSize() },
-                            onClearPlaybackCacheClick = { viewModel.clearPlaybackCache() }
-                        )
-                        if (showAiModelDialog) {
-                            AiModelDialog(
-                                currentModel = uiState.subtitleAiModel,
-                                onModelSelected = { model ->
-                                    viewModel.setSubtitleAiModel(model)
-                                    showAiModelDialog = false
-                                },
-                                onDismiss = { showAiModelDialog = false }
-                            )
-                        }
-                        if (showAiApiKeyDialog) {
-                            AiApiKeyDialog(
-                                currentKey = uiState.subtitleAiApiKey,
-                                model = uiState.subtitleAiModel,
-                                onSave = { key ->
-                                    viewModel.saveSubtitleAiApiKey(key)
-                                    showAiApiKeyDialog = false
-                                },
-                                onDismiss = { showAiApiKeyDialog = false }
-                            )
-                        }
-                        if (showCustomUserAgentDialog) {
-                            CustomUserAgentDialog(
-                                currentValue = uiState.customUserAgent,
-                                onSave = { value ->
-                                    viewModel.setCustomUserAgent(value)
-                                    showCustomUserAgentDialog = false
-                                },
-                                onDismiss = { showCustomUserAgentDialog = false }
-                            )
-                        }
-                        if (uiState.aiKeyServerState.isActive) {
-                            AiKeyQrOverlay(
-                                qrBitmap = uiState.aiKeyServerState.qrBitmap,
-                                serverUrl = uiState.aiKeyServerState.serverUrl,
-                                keyReceived = uiState.aiKeyServerState.keyReceived,
-                                onClose = { viewModel.stopAiKeyServer() }
-                            )
-                        }
-                        } // end "general" block
-                        "stream_integrations" -> StreamIntegrationsScreen(
-                            items = uiState.streamProviderItems,
-                            searchMode = uiState.streamSearchMode,
-                            onSearchModeChange = { viewModel.setStreamSearchMode(it) },
-                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                            focusedActionIndex = integrationActionIndex,
-                            onToggle = { viewModel.toggleStreamProvider(it.id) },
-                            onMoveUp = { viewModel.moveStreamProviderUp(it.id) },
-                            onMoveDown = { viewModel.moveStreamProviderDown(it.id) }
-                        )
-                        "iptv" -> if (showIptvCategoriesSettings) {
-                            IptvCategoriesSettings(
-                                playlistId = uiState.iptvSelectedPlaylistId ?: "",
-                                availableGroups = uiState.iptvAvailableGroups,
-                                hiddenGroups = uiState.iptvHiddenGroups,
-                                groupOrder = uiState.iptvGroupOrder,
-                                focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                                focusedActionIndex = iptvActionIndex,
-                                onToggleHidden = { viewModel.toggleIptvHiddenGroup(uiState.iptvSelectedPlaylistId ?: "", it) },
-                                onToggleHold = { group -> iptvHeldGroup = if (iptvHeldGroup == null) group else null },
-                                onReset = { viewModel.resetIptvGroupOrder(uiState.iptvSelectedPlaylistId ?: "") },
-                                onBulkToggle = { visible -> viewModel.setAllIptvGroupsVisible(uiState.iptvSelectedPlaylistId ?: "", visible) },
-                                heldGroup = iptvHeldGroup,
-                                showCategoryTabs = iptvTabBarVisible,
-                                selectedTab = uiState.iptvCategoryTab,
-                                onSelectTab = { tab -> viewModel.setIptvCategoryTab(tab) },
-                                catalogCategories = iptvCatalogCategories,
-                                hiddenCatalogCategories = when (iptvCatalogKind) {
-                                    StalkerCatalogKind.MOVIES -> uiState.iptvHiddenVodCategories
-                                    StalkerCatalogKind.SERIES -> uiState.iptvHiddenSeriesCategories
-                                    null -> emptyList()
-                                },
-                                isCatalogLoading = uiState.isIptvStalkerCategoriesLoading,
-                                isCatalogLoaded = uiState.iptvStalkerCategoriesLoaded,
-                                onToggleCatalogCategory = { categoryId ->
-                                    iptvCatalogKind?.let { kind ->
-                                        viewModel.toggleIptvHiddenStalkerCategory(
-                                            kind = kind,
-                                            portalId = uiState.iptvSelectedPlaylistId ?: "",
-                                            categoryId = categoryId
-                                        )
-                                    }
-                                },
-                                onBulkToggleCatalogCategories = { visible ->
-                                    iptvCatalogKind?.let { kind ->
-                                        viewModel.setAllIptvStalkerCategoriesVisible(
-                                            kind = kind,
-                                            portalId = uiState.iptvSelectedPlaylistId ?: "",
-                                            visible = visible
-                                        )
-                                    }
-                                }
-                            )
-                        } else IptvSettings(
-                            playlists = uiState.iptvPlaylists,
-                            channelCount = uiState.iptvChannelCount,
-                            isLoading = uiState.isIptvLoading,
-                            error = uiState.iptvError?.localizedText(),
-                            statusMessage = uiState.iptvStatusMessage?.localizedText(),
-                            statusType = uiState.iptvStatusType,
-                            progressText = uiState.iptvProgressText,
-                            progressPercent = uiState.iptvProgressPercent,
-                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                            focusedActionIndex = iptvActionIndex,
-                            onConfigure = { editingIptvIndex = -1; showIptvInput = true },
-                            onDeleteSelectedPlaylists = viewModel::removeIptvPlaylists,
-                            onDeleteSelectedPortals = viewModel::removeStalkerPortals,
-                            stalkerPortals = uiState.iptvStalkerPortals,
-                            onAddStalkerPortal = { stalkerEditId = null; stalkerEditPortal = ""; stalkerEditMac = ""; stalkerEditName = ""; showStalkerInput = true },
-                            onEditStalkerPortal = { portal -> stalkerEditId = portal.id; stalkerEditPortal = portal.portalUrl; stalkerEditMac = portal.macAddress; stalkerEditName = portal.name; showStalkerInput = true },
-                            onToggleStalkerPortal = { id -> viewModel.onToggleStalkerPortal(id) },
-                            onMoveStalkerPortalUp = { id -> viewModel.onMoveStalkerPortalUp(id) },
-                            onMoveStalkerPortalDown = { id -> viewModel.onMoveStalkerPortalDown(id) },
-                            onRemoveStalkerPortal = { id -> viewModel.onRemoveStalkerPortal(id) },
-                            onManageStalkerCategories = { id -> openIptvCategories(id) },
-                            onRenameStalkerPortal = { portal -> stalkerRenameId = portal.id; stalkerRenameName = portal.name; showStalkerRename = true },
-                            accountInfo = uiState.iptvAccountInfo,
-                            onEditPlaylist = { idx -> editingIptvIndex = idx; showIptvInput = true },
-                            onTogglePlaylist = { idx ->
-                                val updated = uiState.iptvPlaylists.toMutableList()
-                                val item = updated.getOrNull(idx) ?: return@IptvSettings
-                                updated[idx] = item.copy(enabled = !item.enabled)
-                                viewModel.saveIptvPlaylists(updated)
-                            },
-                            onMovePlaylistUp = { idx ->
-                                if (idx <= 0) return@IptvSettings
-                                val updated = uiState.iptvPlaylists.toMutableList()
-                                val item = updated.removeAt(idx)
-                                updated.add(idx - 1, item)
-                                viewModel.saveIptvPlaylists(updated)
-                            },
-                            onMovePlaylistDown = { idx ->
-                                val updated = uiState.iptvPlaylists.toMutableList()
-                                if (idx !in 0 until updated.lastIndex) return@IptvSettings
-                                val item = updated.removeAt(idx)
-                                updated.add(idx + 1, item)
-                                viewModel.saveIptvPlaylists(updated)
-                            },
-                            onDeletePlaylist = { idx ->
-                                val updated = uiState.iptvPlaylists.toMutableList()
-                                if (idx in updated.indices) {
-                                    updated.removeAt(idx)
-                                    viewModel.saveIptvPlaylists(updated)
-                                }
-                            },
-                            onRefresh = { viewModel.refreshIptvAndAccountInfo() },
-                            onDelete = { viewModel.clearIptvConfig() },
-                            onManageCategories = openIptvCategories,
-                            sortOrder = uiState.iptvSortOrder,
-                            onSortOrderChange = { viewModel.setIptvSortOrder(it) },
-                            vodSearchEnabled = uiState.vodSearchEnabled,
-                            onVodSearchToggle = viewModel::setVodSearchEnabled,
-                            epgVodActionsEnabled = uiState.epgVodActionsEnabled,
-                            onEpgVodActionsToggle = viewModel::setEpgVodActionsEnabled,
-                            fallbackChannelLogosEnabled = uiState.fallbackChannelLogosEnabled,
-                            onFallbackChannelLogosToggle = viewModel::setFallbackChannelLogosEnabled,
-                            favoritesOnHomeEnabled = uiState.iptvFavoritesOnHome,
-                            onFavoritesOnHomeToggle = viewModel::setIptvFavoritesOnHome,
-                        )
-                        "TV" -> IptvSettings(
-                            playlists = uiState.iptvPlaylists,
-                            channelCount = uiState.iptvChannelCount,
-                            isLoading = uiState.isIptvLoading,
-                            error = uiState.iptvError?.localizedText(),
-                            statusMessage = uiState.iptvStatusMessage?.localizedText(),
-                            statusType = uiState.iptvStatusType,
-                            progressText = uiState.iptvProgressText,
-                            progressPercent = uiState.iptvProgressPercent,
-                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                            focusedActionIndex = iptvActionIndex,
-                            onConfigure = { editingIptvIndex = -1; showIptvInput = true },
-                            onDeleteSelectedPlaylists = viewModel::removeIptvPlaylists,
-                            onDeleteSelectedPortals = viewModel::removeStalkerPortals,
-                            stalkerPortals = uiState.iptvStalkerPortals,
-                            onAddStalkerPortal = { stalkerEditId = null; stalkerEditPortal = ""; stalkerEditMac = ""; stalkerEditName = ""; showStalkerInput = true },
-                            onEditStalkerPortal = { portal -> stalkerEditId = portal.id; stalkerEditPortal = portal.portalUrl; stalkerEditMac = portal.macAddress; stalkerEditName = portal.name; showStalkerInput = true },
-                            onToggleStalkerPortal = { id -> viewModel.onToggleStalkerPortal(id) },
-                            onMoveStalkerPortalUp = { id -> viewModel.onMoveStalkerPortalUp(id) },
-                            onMoveStalkerPortalDown = { id -> viewModel.onMoveStalkerPortalDown(id) },
-                            onRemoveStalkerPortal = { id -> viewModel.onRemoveStalkerPortal(id) },
-                            onManageStalkerCategories = { id -> openIptvCategories(id) },
-                            onRenameStalkerPortal = { portal -> stalkerRenameId = portal.id; stalkerRenameName = portal.name; showStalkerRename = true },
-                            accountInfo = uiState.iptvAccountInfo,
-                            onEditPlaylist = { idx -> editingIptvIndex = idx; showIptvInput = true },
-                            onTogglePlaylist = { idx ->
-                                val updated = uiState.iptvPlaylists.toMutableList()
-                                val item = updated.getOrNull(idx) ?: return@IptvSettings
-                                updated[idx] = item.copy(enabled = !item.enabled)
-                                viewModel.saveIptvPlaylists(updated)
-                            },
-                            onMovePlaylistUp = { idx ->
-                                if (idx <= 0) return@IptvSettings
-                                val updated = uiState.iptvPlaylists.toMutableList()
-                                val item = updated.removeAt(idx)
-                                updated.add(idx - 1, item)
-                                viewModel.saveIptvPlaylists(updated)
-                            },
-                            onMovePlaylistDown = { idx ->
-                                val updated = uiState.iptvPlaylists.toMutableList()
-                                if (idx !in 0 until updated.lastIndex) return@IptvSettings
-                                val item = updated.removeAt(idx)
-                                updated.add(idx + 1, item)
-                                viewModel.saveIptvPlaylists(updated)
-                            },
-                            onDeletePlaylist = { idx ->
-                                val updated = uiState.iptvPlaylists.toMutableList()
-                                if (idx in updated.indices) {
-                                    updated.removeAt(idx)
-                                    viewModel.saveIptvPlaylists(updated)
-                                }
-                            },
-                            onRefresh = { viewModel.refreshIptvAndAccountInfo() },
-                            onDelete = { viewModel.clearIptvConfig() },
-                            onManageCategories = openIptvCategories,
-                            sortOrder = uiState.iptvSortOrder,
-                            onSortOrderChange = { viewModel.setIptvSortOrder(it) },
-                            vodSearchEnabled = uiState.vodSearchEnabled,
-                            onVodSearchToggle = viewModel::setVodSearchEnabled,
-                            epgVodActionsEnabled = uiState.epgVodActionsEnabled,
-                            onEpgVodActionsToggle = viewModel::setEpgVodActionsEnabled,
-                            fallbackChannelLogosEnabled = uiState.fallbackChannelLogosEnabled,
-                            onFallbackChannelLogosToggle = viewModel::setFallbackChannelLogosEnabled,
-                            favoritesOnHomeEnabled = uiState.iptvFavoritesOnHome,
-                            onFavoritesOnHomeToggle = viewModel::setIptvFavoritesOnHome,
-                        )
-                        "home_server" -> HomeServerSettings(
-                            connections = uiState.homeServerConnections,
-                            isWorking = uiState.isHomeServerConnecting,
-                            isPlexWorking = uiState.isPlexHomeServerPolling || uiState.plexHomeServerAuth != null,
-                            error = uiState.homeServerError?.localizedText(),
-                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                            onConnect = {
-                                homeServerUrl = ""
-                                homeServerDisplayName = ""
-                                homeServerUsername = ""
-                                homeServerPassword = ""
-                                showHomeServerInput = true
-                            },
-                            onConnectPlex = {
-                                plexHomeServerDisplayName = ""
-                                plexHomeServerUrl = ""
-                                showPlexHomeServerInput = true
-                            },
-                            onEditConnection = { connection ->
-                                homeServerUrl = connection.serverUrl
-                                homeServerDisplayName = connection.displayName
-                                homeServerUsername = connection.userName
-                                homeServerPassword = ""
-                                showHomeServerInput = true
-                            },
-                            onTest = { viewModel.testHomeServerConnection() },
-                            onDisconnect = { viewModel.disconnectHomeServer() }
-                        )
-                        "catalogs" -> CatalogsSettings(
-                            catalogs = uiState.catalogs,
-                            header = {
-                                TvSettingsSectionHeader("catalogs", uiState, stremioAddons.size)
-                                Spacer(Modifier.height(12.dp))
-                            },
-                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                            focusedActionIndex = catalogActionIndex,
-                            onAddCatalog = { showCatalogInput = true },
-                            onImportCatalogPack = { showCatalogPackInput = true },
-                            builtInCollectionsEnabled = uiState.builtInCollectionsEnabled,
-                            onToggleBuiltInCollections = { viewModel.toggleBuiltInCollections() },
-                            onRenameCatalog = { catalog ->
-                                if (catalog.sourceType == CatalogSourceType.YOUTUBE) {
-                                    youTubeManagerCatalogId = catalog.id
-                                } else {
-                                    openCatalogEditor(catalog)
-                                }
-                            },
-                            onMoveCatalogUp = { catalog -> viewModel.moveCatalogUp(catalog.id) },
-                            onMoveCatalogDown = { catalog -> viewModel.moveCatalogDown(catalog.id) },
-                            onDeleteCatalog = { catalog ->
-                                if (catalog.isBulkDeletablePack) {
-                                    deletePackId = catalog.effectivePackId
-                                    deletePackName = catalog.effectivePackName
-                                    showDeletePackConfirm = true
-                                } else {
-                                    viewModel.removeCatalog(catalog.id)
-                                }
-                            },
-                            onUnpackCatalog = { catalog -> viewModel.unpackCatalog(catalog.id) }
-                        )
-                        "stremio" -> StremioAddonsSettings(
-                            addons = stremioAddons,
-                            isRefreshingAddons = uiState.isRefreshingAddons,
-                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                            focusedActionIndex = addonActionIndex,
-                            onToggleAddon = { viewModel.toggleAddon(it) },
-                            onDeleteAddon = { viewModel.removeAddon(it) },
-                            onConfigureAddon = { addonConfigureTarget = it },
-                            onAddCustomAddon = { showCustomAddonInput = true },
-                            onBrowseCommunityAddons = { showCommunityAddons = true },
-                            onRefreshAddons = { viewModel.refreshAddons() }
-                        )
-                        "plugins" -> {
-                            com.arflix.tv.ui.screens.plugin.PluginScreen(
-                                focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                                onFocusedIndexChanged = { contentFocusIndex = it },
-                                onMaxIndexChanged = { pluginsMaxIndex = it },
-                                enterTrigger = if (activeZone == Zone.CONTENT) pluginsEnterTrigger else -1,
-                                onEnterTriggerHandled = { pluginsEnterTrigger = -1 },
-                                onModalStateChanged = { pluginsModalOpen = it },
-                                onBackPressed = { activeZone = Zone.SECTION },
-                                onNavigateToSection = { activeZone = Zone.SECTION }
-                            )
-                        }
-                        "accounts" -> AccountsSettings(
-                            isCloudAuthenticated = uiState.isLoggedIn,
-                            cloudEmail = uiState.accountEmail,
-                            cloudHint = null,
-                            isTraktAuthenticated = uiState.isTraktAuthenticated,
-                            isForceCloudSyncing = uiState.isForceCloudSyncing,
-                            lastCloudSyncStatus = uiState.lastCloudSyncStatus?.localizedText(),
-                            diagnosticsSharingEnabled = uiState.diagnosticsSharingEnabled,
-                            usageStatisticsEnabled = uiState.usageStatisticsEnabled,
-                            isSelfUpdateSupported = uiState.isSelfUpdateSupported,
-                            updateStatus = uiState.updateStatus,
-                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                            onConnectCloud = {
-                                if (isTouchDevice) {
-                                    viewModel.openCloudEmailPasswordDialog()
-                                } else {
-                                    viewModel.startCloudAuth()
-                                }
-                            },
-                            onDisconnectCloud = { showCloudDisconnectConfirm = true },
-                            onConnectTrakt = { viewModel.startTraktAuth() },
-                            onCancelTrakt = { viewModel.cancelTraktAuth() },
-                            onDisconnectTrakt = { showTraktDisconnectConfirm = true },
-                            isMdbListConnected = uiState.isMdbListConnected,
-                            onConnectMdbList = { viewModel.startMdbListAuth() },
-                            onCancelMdbList = { viewModel.cancelMdbListAuth() },
-                            onDisconnectMdbList = { showMdbListDisconnectConfirm = true },
-                            isSimklConnected = uiState.isSimklConnected,
-                            onConnectSimkl = { viewModel.startSimklAuth() },
-                            onCancelSimkl = { viewModel.cancelSimklAuth() },
-                            onDisconnectSimkl = { viewModel.disconnectSimkl() },
-                            onToggleWeTrakr = { viewModel.toggleWeTrakr() },
-                            trackingUiState = uiState,
-                            onTrackingReadMode = viewModel::setTrackingReadMode,
-                            onTrackingWriteTarget = viewModel::setTrackingWriteTarget,
-                            onForceCloudSync = { viewModel.forceCloudSyncNow() },
-                            onForceTraktSync = { viewModel.forceTraktSync() },
-                            onSwitchProfile = onSwitchProfile,
-                            onCheckUpdates = { viewModel.checkForAppUpdates(force = true, showNoUpdateFeedback = true) },
-                            onInstallUpdate = { viewModel.installAppUpdateOrRequestPermission() },
-                            quietUpdateNotifications = uiState.quietUpdateNotifications,
-                            onQuietUpdateNotificationsToggle = viewModel::setQuietUpdateNotifications,
-                            onDiagnosticsSharingToggle = viewModel::setDiagnosticsSharingEnabled,
-                            onUsageStatisticsToggle = viewModel::setUsageStatisticsEnabled,
-                            onOpenPrivacy = { openExternalUrl(context, PRIVACY_POLICY_URL) },
-                            onOpenCredits = { showCredits = true },
-                            onOpenDataDeletion = { openExternalUrl(context, ACCOUNT_DELETION_URL) },
-                            onNavigateToTelegram = onNavigateToTelegramSettings
+            // TV reveals measured rows; touch uses native bring-into-view. A new
+            // subpage gets its own tracker even if its first focused index is unchanged.
+            SettingsContentFocusEffect(
+                focusIndex = { contentFocusIndex },
+                tracker = focusTracker,
+                section = sections[sectionIndex],
+                zone = activeZone,
+                catalogCount = uiState.catalogs.size,
+                addonCount = uiState.addons.size
+            ) { focusedIndex ->
+                if (activeZone != Zone.CONTENT) return@SettingsContentFocusEffect
+                if (!isTouchDevice && sections[sectionIndex] == "catalogs") return@SettingsContentFocusEffect
+
+                if (!isTouchDevice) {
+                    // Let newly selected sections attach; never retain detached coordinates.
+                    androidx.compose.runtime.withFrameNanos { }
+                    focusTracker.revealDelta(focusedIndex)?.let { delta ->
+                        val target = (scrollState.value + delta).toInt().coerceIn(0, scrollState.maxValue)
+                        if (target != scrollState.value) scrollState.animateScrollTo(target, tween(100, easing = FastOutSlowInEasing))
+                        return@SettingsContentFocusEffect
+                    }
+                }
+
+                val requester = focusTracker.requesters[focusedIndex]
+                if (requester != null && isTouchDevice) {
+                    // Native branch — handles all geometry correctly.
+                    runCatching { requester.bringIntoView() }
+                    return@SettingsContentFocusEffect
+                }
+
+                // Fallback: legacy ratio heuristic, only when positions are unknown
+                // and scrolling is actually possible.
+                val maxScroll = scrollState.maxValue
+                val currentScroll = scrollState.value
+                if (maxScroll <= 0) return@SettingsContentFocusEffect
+                val currentSection = sections.getOrNull(sectionIndex).orEmpty()
+                val maxIndex = sectionMaxIndex(currentSection).coerceAtLeast(1)
+                val clampedFocus = focusedIndex.coerceIn(0, maxIndex)
+                val ratio = clampedFocus.toFloat() / maxIndex.toFloat()
+                val targetScroll = (maxScroll * ratio).toInt().coerceIn(0, maxScroll)
+                if (abs(currentScroll - targetScroll) > 24) {
+                    if (isTouchDevice) {
+                        scrollState.animateScrollTo(targetScroll)
+                    } else {
+                        // Settings uses a single, manually managed focus target on TV.
+                        // A short animation keeps larger row jumps readable without
+                        // building a long animation queue behind the remote input.
+                        scrollState.animateScrollTo(
+                            targetScroll,
+                            animationSpec = tween(100, easing = FastOutSlowInEasing)
                         )
                     }
-                  }
+                }
+            }
+
+            if (isTouchDevice) {
+                MobileSettingsLayout(
+                    page = mobilePage,
+                    onNavigate = { mobilePage = it },
+                    uiState = uiState,
+                    viewModel = viewModel,
+                    stremioAddons = stremioAddons,
+                    onSwitchProfile = onSwitchProfile,
+                    openContentLanguagePicker = openContentLanguagePicker,
+                    openSubtitlePicker = openSubtitlePicker,
+                    openSecondarySubtitlePicker = openSecondarySubtitlePicker,
+                    openAudioLanguagePicker = openAudioLanguagePicker,
+                    openDnsProviderPicker = openDnsProviderPicker,
+                    openUiModeWarningDialog = openUiModeWarningDialog,
+                    openQualityFiltersModal = { showQualityFiltersModal = true },
+                    onSubtitleAiModelClick = { showAiModelDialog = true },
+                    onSubtitleAiApiKeyClick = { showAiApiKeyDialog = true },
+                    onSubtitleAiQrClick = { viewModel.startAiKeyServer() },
+                    onAddIptvClick = { editingIptvIndex = -1; showIptvInput = true },
+                    onEditIptvClick = { idx -> editingIptvIndex = idx; showIptvInput = true },
+                    onAddStalkerPortal = {
+                        stalkerEditId = null
+                        stalkerEditPortal = ""
+                        stalkerEditMac = ""
+                        stalkerEditName = ""
+                        showStalkerInput = true
+                    },
+                    onEditStalkerPortal = { portal ->
+                        stalkerEditId = portal.id
+                        stalkerEditPortal = portal.portalUrl
+                        stalkerEditMac = portal.macAddress
+                        stalkerEditName = portal.name
+                        showStalkerInput = true
+                    },
+                    onAddCatalogClick = { showCatalogInput = true },
+                    onImportCatalogPackClick = { showCatalogPackInput = true },
+                    onRenameCatalogClick = { catalog ->
+                        if (catalog.sourceType == CatalogSourceType.YOUTUBE) {
+                            youTubeManagerCatalogId = catalog.id
+                        } else {
+                            openCatalogEditor(catalog)
+                        }
+                    },
+                    onDeleteCatalogClick = { catalog ->
+                        if (catalog.isBulkDeletablePack) {
+                            deletePackId = catalog.effectivePackId
+                            deletePackName = catalog.effectivePackName
+                            showDeletePackConfirm = true
+                        } else {
+                            viewModel.removeCatalog(catalog.id)
+                        }
+                    },
+                    onConnectHomeServerClick = {
+                        val connection = uiState.homeServerConnection
+                        homeServerUrl = connection?.serverUrl.orEmpty()
+                        homeServerDisplayName = connection?.displayName.orEmpty()
+                        homeServerUsername = connection?.userName.orEmpty()
+                        homeServerPassword = ""
+                        showHomeServerInput = true
+                    },
+                    onConnectPlexHomeServerClick = {
+                        plexHomeServerDisplayName = ""
+                        plexHomeServerUrl = ""
+                        showPlexHomeServerInput = true
+                    },
+                    onAddCustomAddonClick = { showCustomAddonInput = true },
+                    onBrowseCommunityAddonsClick = { showCommunityAddons = true },
+                    openCustomUserAgentDialog = { showCustomUserAgentDialog = true },
+                    onNavigateToTelegram = onNavigateToTelegramSettings,
+                    onDisconnectCloud = { showCloudDisconnectConfirm = true },
+                    onDisconnectTrakt = { showTraktDisconnectConfirm = true }
+                )
+            } else {
+                SettingsTopBar(
+                    profile = currentProfile,
+                    isFocused = { activeZone == Zone.SIDEBAR },
+                    focusIndex = { sidebarFocusIndex }
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = AppTopBarContentTopInset)
+                        .padding(start = 34.dp, end = 42.dp, bottom = 28.dp)
+                ) {
+                    // Settings internal sidebar
+                    Column(
+                        modifier = Modifier
+                            .width(204.dp)
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF050505))
+                            .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(16.dp))
+                            .padding(vertical = 18.dp, horizontal = 10.dp)
+                    ) {
+                        val availableUpdate = uiState.updateStatus as? com.arflix.tv.updater.UpdateStatus.UpdateAvailable
+                        val awaitingCompilation = com.arflix.tv.ui.components.rememberAwaitingProfileCompilation()
+                        SettingsSidebarHeader(availableUpdate?.update?.tag, awaitingCompilation)
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .onGloballyPositioned { sectionFocusTracker.viewport = it }
+                                .verticalScroll(sectionScrollState)
+                        ) {
+                            sections.forEachIndexed { index, section ->
+                                val group = tvSettingsSidebarGroup(section)
+                                val previousGroup = sections.getOrNull(index - 1)?.let { tvSettingsSidebarGroup(it) }
+                                if (index == 0 || group != previousGroup) {
+                                    SettingsSectionGroupLabel(group)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                }
+                                SettingsSectionItem(
+                                    modifier = Modifier.onGloballyPositioned { sectionFocusTracker.coordinates[index] = it },
+                                    icon = when (section) {
+                                        "language" -> Icons.Default.Language
+                                        "subtitles" -> Icons.Default.Subtitles
+                                        "ai_subtitles" -> Icons.Default.AutoAwesome
+                                        "playback" -> Icons.Default.PlayArrow
+                                        "appearance" -> Icons.Default.Palette
+                                        "profiles" -> Icons.Default.SwitchAccount
+                                        "network" -> Icons.Default.Settings
+                                        "stream_integrations" -> Icons.Default.Tune
+                                        "iptv" -> Icons.Default.LiveTv
+                                        "home_server" -> Icons.Default.Cloud
+                                        "catalogs" -> Icons.Default.Widgets
+                                        "stremio" -> Icons.Default.Extension
+                                        "accounts" -> Icons.Default.Person
+                                        else -> Icons.Default.Settings
+                                    },
+                                    title = when (section) {
+                                        "language" -> stringResource(R.string.language_and_audio)
+                                        "subtitles" -> stringResource(R.string.subtitles)
+                                        "ai_subtitles" -> stringResource(R.string.ai_subtitles_section)
+                                        "playback" -> stringResource(R.string.playback)
+                                        "appearance" -> stringResource(R.string.interface_label)
+                                        "profiles" -> stringResource(R.string.profiles)
+                                        "network" -> stringResource(R.string.network)
+                                        "stream_integrations" -> stringResource(R.string.settings_stream_integrations)
+                                        "iptv" -> stringResource(R.string.iptv)
+                                        "home_server" -> stringResource(R.string.settings_home_server)
+                                        "catalogs" -> stringResource(R.string.catalogs)
+                                        "stremio" -> stringResource(R.string.addons)
+                                        "accounts" -> stringResource(R.string.accounts)
+                                        else -> section.replaceFirstChar { it.uppercase() }
+                                    },
+                                    isSelected = sectionIndex == index,
+                                    isFocused = activeZone == Zone.SECTION && sectionIndex == index,
+                                    onClick = {
+                                        sectionIndex = index
+                                        contentFocusIndex = 0
+                                        integrationActionIndex = 0
+                                        iptvActionIndex = 0
+                                        iptvHeldGroup = null
+                                        showIptvCategoriesSettings = false
+                                        activeZone = Zone.SECTION
+                                    }
+                                )
+
+                                Spacer(modifier = Modifier.height(6.dp))
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = stringResource(R.string.settings_app_version_label, BuildConfig.VERSION_NAME),
+                            style = ArflixTypography.caption,
+                            color = TextSecondary.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+
+                    SettingsContentPane(
+                        modifier = Modifier.weight(1f),
+                        section = sections[sectionIndex],
+                        scrollState = scrollState,
+                        focusTracker = focusTracker,
+                        focusIndex = { if (activeZone == Zone.CONTENT) contentFocusIndex else -1 },
+                        header = {
+                            TvSettingsSectionHeader(
+                                section = sections[sectionIndex],
+                                uiState = uiState,
+                                addonCount = stremioAddons.size
+                            )
+                        }
+                    ) { focusedIndex ->
+                        when (sections[sectionIndex]) {
+                            in tvGeneralSectionIds -> {
+                            TvGeneralSettingsRows(
+                                section = sections[sectionIndex],
+                                defaultSubtitle = uiState.defaultSubtitle,
+                                secondarySubtitle = uiState.secondarySubtitle,
+                                defaultAudioLanguage = uiState.defaultAudioLanguage,
+                                dnsProvider = uiState.dnsProvider,
+                                cardLayoutMode = uiState.cardLayoutMode,
+                                frameRateMatchingMode = uiState.frameRateMatchingMode,
+                                autoPlayNext = uiState.autoPlayNext,
+                                autoPlaySingleSource = uiState.autoPlaySingleSource,
+                                autoPlayMinQuality = uiState.autoPlayMinQuality,
+                                autoPlayMaxQuality = uiState.autoPlayMaxQuality,
+                                autoPlayMaxSizeGb = uiState.autoPlayMaxSizeGb,
+                                contentLanguage = uiState.contentLanguage,
+                                subtitleSize = uiState.subtitleSize,
+                                subtitleColor = uiState.subtitleColor,
+                                subtitleOffset = uiState.subtitleOffset,
+                                subtitleStyle = uiState.subtitleStyle,
+                                subtitleFont = uiState.subtitleFont,
+                                subtitleStylized = uiState.subtitleStylized,
+                                deviceModeOverride = uiState.deviceModeOverride,
+                                skipProfileSelection = uiState.skipProfileSelection,
+                                oledBlackBackground = uiState.oledBlackBackground,
+                                clockFormat = uiState.clockFormat,
+                                showBudget = uiState.showBudget,
+                                volumeBoostDb = uiState.volumeBoostDb,
+                                focusedIndex = focusedIndex,
+                                onSubtitleClick = openSubtitlePicker,
+                                onSecondarySubtitleClick = openSecondarySubtitlePicker,
+                                onAudioLanguageClick = openAudioLanguagePicker,
+                                onCardLayoutToggle = { viewModel.toggleCardLayoutMode() },
+                                onFrameRateMatchingClick = { viewModel.cycleFrameRateMatchingMode() },
+                                onDnsProviderClick = openDnsProviderPicker,
+                                onAutoPlayToggle = { viewModel.setAutoPlayNext(it) },
+                                onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
+                                onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
+                                onAutoPlayMaxQualityClick = { viewModel.cycleAutoPlayMaxQuality() },
+                                onAutoPlayMaxSizeClick = { viewModel.cycleAutoPlayMaxSize() },
+                                trailerAutoPlay = uiState.trailerAutoPlay,
+                                onTrailerAutoPlayToggle = { viewModel.setTrailerAutoPlay(it) },
+                                trailerSoundEnabled = uiState.trailerSoundEnabled,
+                                onTrailerSoundEnabledToggle = { viewModel.setTrailerSoundEnabled(it) },
+                                trailerInCards = uiState.trailerInCards,
+                                onTrailerInCardsToggle = { viewModel.setTrailerInCards(it) },
+                                netflixHomeStyle = uiState.netflixHomeStyle,
+                                onNetflixHomeStyleToggle = { viewModel.setNetflixHomeStyle(it) },
+                                watchlistOnHome = uiState.watchlistOnHome,
+                                onWatchlistOnHomeToggle = viewModel::setWatchlistOnHome,
+                                trailerDelaySeconds = uiState.trailerDelaySeconds,
+                                onTrailerDelayClick = { viewModel.cycleTrailerDelay() },
+                                guideRowCount = uiState.guideRowCount,
+                                onGuideRowCountClick = { viewModel.cycleGuideRowCount() },
+                                onDeviceModeClick = openUiModeWarningDialog,
+                                onContentLanguageClick = openContentLanguagePicker,
+                                onSkipProfileSelectionToggle = { viewModel.setSkipProfileSelection(it) },
+                                onOledBlackBackgroundToggle = { viewModel.setOledBlackBackground(it) },
+                                onClockFormatClick = { viewModel.cycleClockFormat() },
+                                onShowBudgetToggle = { viewModel.setShowBudget(it) },
+                                showEpisodeRatings = uiState.showEpisodeRatings,
+                                onShowEpisodeRatingsToggle = { viewModel.setShowEpisodeRatings(it) },
+                                animeStructuringStyle = uiState.animeStructuringStyle,
+                                onAnimeStructuringStyleToggle = { viewModel.cycleAnimeStructuringStyle() },
+                                smoothScrolling = uiState.smoothScrolling,
+                                onSmoothScrollingToggle = { viewModel.setSmoothScrolling(it) },
+                                spoilerBlurEnabled = uiState.spoilerBlurEnabled,
+                                onSpoilerBlurToggle = { viewModel.setSpoilerBlurEnabled(it) },
+                                accentColor = uiState.accentColor,
+                                onAccentColorClick = { viewModel.cycleAccentColor() },
+                                showLoadingStats = uiState.showLoadingStats,
+                                onShowLoadingStatsToggle = { viewModel.setShowLoadingStats(it) },
+                                onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
+                                onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
+                                onSubtitleColorClick = { viewModel.cycleSubtitleColor() },
+                                onSubtitleOffsetClick = { viewModel.cycleSubtitleOffset() },
+                                onSubtitleStyleClick = { viewModel.cycleSubtitleStyle() },
+                                onSubtitleFontClick = { viewModel.cycleSubtitleFont() },
+                                onSubtitleStylizedToggle = { viewModel.toggleSubtitleStylized() },
+                                filterSubtitlesByLanguage = uiState.filterSubtitlesByLanguage,
+                                onFilterSubtitlesByLanguageToggle = { viewModel.setFilterSubtitlesByLanguage(it) },
+                                useForcedSubtitles = uiState.useForcedSubtitles,
+                                onUseForcedSubtitlesToggle = { viewModel.setUseForcedSubtitles(it) },
+                                qualityFilterValue = uiState.qualityFilterPresetLabel,
+                                onQualityFiltersClick = { showQualityFiltersModal = true },
+                                subtitleAiEnabled = uiState.subtitleAiEnabled,
+                                subtitleAiAutoSelect = uiState.subtitleAiAutoSelect,
+                                subtitleAiFindBestMatch = uiState.subtitleAiFindBestMatch,
+                                subtitleHearingSync = uiState.subtitleHearingSync,
+                                subtitleHearingSyncLowMemory = uiState.subtitleHearingSyncLowMemory,
+                                subtitlePreloadEnabled = uiState.subtitlePreloadEnabled,
+                                dolbyVisionCompatEnabled = uiState.dolbyVisionCompatEnabled,
+                                subtitleAiApiKey = uiState.subtitleAiApiKey,
+                                subtitleAiModel = uiState.subtitleAiModel,
+                                subtitleRemoveHearingImpaired = uiState.subtitleRemoveHearingImpaired,
+                                onSubtitleAiEnabledToggle = { viewModel.setSubtitleAiEnabled(it) },
+                                onSubtitleAiModelClick = { showAiModelDialog = true },
+                                onSubtitleAiAutoSelectToggle = { viewModel.setSubtitleAiAutoSelect(it) },
+                                onSubtitleAiFindBestMatchToggle = { viewModel.setSubtitleAiFindBestMatch(it) },
+                                onSubtitleHearingSyncToggle = { viewModel.setSubtitleHearingSync(it) },
+                                onSubtitlePreloadToggle = { viewModel.setSubtitlePreloadEnabled(it) },
+                                onDolbyVisionCompatToggle = { viewModel.setDolbyVisionCompatEnabled(it) },
+                                onSubtitleRemoveHearingImpairedToggle = { viewModel.setSubtitleRemoveHearingImpaired(it) },
+                                onSubtitleAiApiKeyClick = { showAiApiKeyDialog = true },
+                                onSubtitleAiQrClick = { viewModel.startAiKeyServer() },
+                                customUserAgent = uiState.customUserAgent,
+                                onCustomUserAgentClick = { showCustomUserAgentDialog = true },
+                                playbackCacheLimitGb = uiState.playbackCacheLimitGb,
+                                playbackCacheUsedBytes = uiState.playbackCacheUsedBytes,
+                                playbackCacheMaxBytes = uiState.playbackCacheMaxBytes,
+                                onPlaybackCacheSizeClick = { viewModel.cyclePlaybackCacheSize() },
+                                onClearPlaybackCacheClick = { viewModel.clearPlaybackCache() }
+                            )
+                            if (showAiModelDialog) {
+                                AiModelDialog(
+                                    currentModel = uiState.subtitleAiModel,
+                                    onModelSelected = { model ->
+                                        viewModel.setSubtitleAiModel(model)
+                                        showAiModelDialog = false
+                                    },
+                                    onDismiss = { showAiModelDialog = false }
+                                )
+                            }
+                            if (showAiApiKeyDialog) {
+                                AiApiKeyDialog(
+                                    currentKey = uiState.subtitleAiApiKey,
+                                    model = uiState.subtitleAiModel,
+                                    onSave = { key ->
+                                        viewModel.saveSubtitleAiApiKey(key)
+                                        showAiApiKeyDialog = false
+                                    },
+                                    onDismiss = { showAiApiKeyDialog = false }
+                                )
+                            }
+                            if (showCustomUserAgentDialog) {
+                                CustomUserAgentDialog(
+                                    currentValue = uiState.customUserAgent,
+                                    onSave = { value ->
+                                        viewModel.setCustomUserAgent(value)
+                                        showCustomUserAgentDialog = false
+                                    },
+                                    onDismiss = { showCustomUserAgentDialog = false }
+                                )
+                            }
+                            if (uiState.aiKeyServerState.isActive) {
+                                AiKeyQrOverlay(
+                                    qrBitmap = uiState.aiKeyServerState.qrBitmap,
+                                    serverUrl = uiState.aiKeyServerState.serverUrl,
+                                    keyReceived = uiState.aiKeyServerState.keyReceived,
+                                    onClose = { viewModel.stopAiKeyServer() }
+                                )
+                            }
+                            } // end "general" block
+                            "stream_integrations" -> StreamIntegrationsScreen(
+                                items = uiState.streamProviderItems,
+                                searchMode = uiState.streamSearchMode,
+                                onSearchModeChange = { viewModel.setStreamSearchMode(it) },
+                                focusedIndex = focusedIndex,
+                                focusedActionIndex = integrationActionIndex,
+                                onToggle = { viewModel.toggleStreamProvider(it.id) },
+                                onMoveUp = { viewModel.moveStreamProviderUp(it.id) },
+                                onMoveDown = { viewModel.moveStreamProviderDown(it.id) }
+                            )
+                            "iptv" -> if (showIptvCategoriesSettings) {
+                                IptvCategoriesSettings(
+                                    playlistId = uiState.iptvSelectedPlaylistId ?: "",
+                                    availableGroups = uiState.iptvAvailableGroups,
+                                    hiddenGroups = uiState.iptvHiddenGroups,
+                                    groupOrder = uiState.iptvGroupOrder,
+                                    focusedIndex = focusedIndex,
+                                    focusedActionIndex = iptvActionIndex,
+                                    onToggleHidden = { viewModel.toggleIptvHiddenGroup(uiState.iptvSelectedPlaylistId ?: "", it) },
+                                    onToggleHold = { group -> iptvHeldGroup = if (iptvHeldGroup == null) group else null },
+                                    onReset = { viewModel.resetIptvGroupOrder(uiState.iptvSelectedPlaylistId ?: "") },
+                                    onBulkToggle = { visible -> viewModel.setAllIptvGroupsVisible(uiState.iptvSelectedPlaylistId ?: "", visible) },
+                                    heldGroup = iptvHeldGroup,
+                                    showCategoryTabs = iptvTabBarVisible,
+                                    selectedTab = uiState.iptvCategoryTab,
+                                    onSelectTab = { tab -> viewModel.setIptvCategoryTab(tab) },
+                                    catalogCategories = iptvCatalogCategories,
+                                    hiddenCatalogCategories = when (iptvCatalogKind) {
+                                        StalkerCatalogKind.MOVIES -> uiState.iptvHiddenVodCategories
+                                        StalkerCatalogKind.SERIES -> uiState.iptvHiddenSeriesCategories
+                                        null -> emptyList()
+                                    },
+                                    isCatalogLoading = uiState.isIptvStalkerCategoriesLoading,
+                                    isCatalogLoaded = uiState.iptvStalkerCategoriesLoaded,
+                                    onToggleCatalogCategory = { categoryId ->
+                                        iptvCatalogKind?.let { kind ->
+                                            viewModel.toggleIptvHiddenStalkerCategory(
+                                                kind = kind,
+                                                portalId = uiState.iptvSelectedPlaylistId ?: "",
+                                                categoryId = categoryId
+                                            )
+                                        }
+                                    },
+                                    onBulkToggleCatalogCategories = { visible ->
+                                        iptvCatalogKind?.let { kind ->
+                                            viewModel.setAllIptvStalkerCategoriesVisible(
+                                                kind = kind,
+                                                portalId = uiState.iptvSelectedPlaylistId ?: "",
+                                                visible = visible
+                                            )
+                                        }
+                                    }
+                                )
+                            } else IptvSettings(
+                                playlists = uiState.iptvPlaylists,
+                                channelCount = uiState.iptvChannelCount,
+                                isLoading = uiState.isIptvLoading,
+                                error = uiState.iptvError?.localizedText(),
+                                statusMessage = uiState.iptvStatusMessage?.localizedText(),
+                                statusType = uiState.iptvStatusType,
+                                progressText = uiState.iptvProgressText,
+                                progressPercent = uiState.iptvProgressPercent,
+                                focusedIndex = focusedIndex,
+                                focusedActionIndex = iptvActionIndex,
+                                onConfigure = { editingIptvIndex = -1; showIptvInput = true },
+                                onDeleteSelectedPlaylists = viewModel::removeIptvPlaylists,
+                                onDeleteSelectedPortals = viewModel::removeStalkerPortals,
+                                stalkerPortals = uiState.iptvStalkerPortals,
+                                onAddStalkerPortal = { stalkerEditId = null; stalkerEditPortal = ""; stalkerEditMac = ""; stalkerEditName = ""; showStalkerInput = true },
+                                onEditStalkerPortal = { portal -> stalkerEditId = portal.id; stalkerEditPortal = portal.portalUrl; stalkerEditMac = portal.macAddress; stalkerEditName = portal.name; showStalkerInput = true },
+                                onToggleStalkerPortal = { id -> viewModel.onToggleStalkerPortal(id) },
+                                onMoveStalkerPortalUp = { id -> viewModel.onMoveStalkerPortalUp(id) },
+                                onMoveStalkerPortalDown = { id -> viewModel.onMoveStalkerPortalDown(id) },
+                                onRemoveStalkerPortal = { id -> viewModel.onRemoveStalkerPortal(id) },
+                                onManageStalkerCategories = { id -> openIptvCategories(id) },
+                                onRenameStalkerPortal = { portal -> stalkerRenameId = portal.id; stalkerRenameName = portal.name; showStalkerRename = true },
+                                accountInfo = uiState.iptvAccountInfo,
+                                onEditPlaylist = { idx -> editingIptvIndex = idx; showIptvInput = true },
+                                onTogglePlaylist = { idx ->
+                                    val updated = uiState.iptvPlaylists.toMutableList()
+                                    val item = updated.getOrNull(idx) ?: return@IptvSettings
+                                    updated[idx] = item.copy(enabled = !item.enabled)
+                                    viewModel.saveIptvPlaylists(updated)
+                                },
+                                onMovePlaylistUp = { idx ->
+                                    if (idx <= 0) return@IptvSettings
+                                    val updated = uiState.iptvPlaylists.toMutableList()
+                                    val item = updated.removeAt(idx)
+                                    updated.add(idx - 1, item)
+                                    viewModel.saveIptvPlaylists(updated)
+                                },
+                                onMovePlaylistDown = { idx ->
+                                    val updated = uiState.iptvPlaylists.toMutableList()
+                                    if (idx !in 0 until updated.lastIndex) return@IptvSettings
+                                    val item = updated.removeAt(idx)
+                                    updated.add(idx + 1, item)
+                                    viewModel.saveIptvPlaylists(updated)
+                                },
+                                onDeletePlaylist = { idx ->
+                                    val updated = uiState.iptvPlaylists.toMutableList()
+                                    if (idx in updated.indices) {
+                                        updated.removeAt(idx)
+                                        viewModel.saveIptvPlaylists(updated)
+                                    }
+                                },
+                                onRefresh = { viewModel.refreshIptvAndAccountInfo() },
+                                onDelete = { viewModel.clearIptvConfig() },
+                                onManageCategories = openIptvCategories,
+                                sortOrder = uiState.iptvSortOrder,
+                                onSortOrderChange = { viewModel.setIptvSortOrder(it) },
+                                vodSearchEnabled = uiState.vodSearchEnabled,
+                                onVodSearchToggle = viewModel::setVodSearchEnabled,
+                                epgVodActionsEnabled = uiState.epgVodActionsEnabled,
+                                onEpgVodActionsToggle = viewModel::setEpgVodActionsEnabled,
+                                fallbackChannelLogosEnabled = uiState.fallbackChannelLogosEnabled,
+                                onFallbackChannelLogosToggle = viewModel::setFallbackChannelLogosEnabled,
+                                favoritesOnHomeEnabled = uiState.iptvFavoritesOnHome,
+                                onFavoritesOnHomeToggle = viewModel::setIptvFavoritesOnHome,
+                            )
+                            "TV" -> IptvSettings(
+                                playlists = uiState.iptvPlaylists,
+                                channelCount = uiState.iptvChannelCount,
+                                isLoading = uiState.isIptvLoading,
+                                error = uiState.iptvError?.localizedText(),
+                                statusMessage = uiState.iptvStatusMessage?.localizedText(),
+                                statusType = uiState.iptvStatusType,
+                                progressText = uiState.iptvProgressText,
+                                progressPercent = uiState.iptvProgressPercent,
+                                focusedIndex = focusedIndex,
+                                focusedActionIndex = iptvActionIndex,
+                                onConfigure = { editingIptvIndex = -1; showIptvInput = true },
+                                onDeleteSelectedPlaylists = viewModel::removeIptvPlaylists,
+                                onDeleteSelectedPortals = viewModel::removeStalkerPortals,
+                                stalkerPortals = uiState.iptvStalkerPortals,
+                                onAddStalkerPortal = { stalkerEditId = null; stalkerEditPortal = ""; stalkerEditMac = ""; stalkerEditName = ""; showStalkerInput = true },
+                                onEditStalkerPortal = { portal -> stalkerEditId = portal.id; stalkerEditPortal = portal.portalUrl; stalkerEditMac = portal.macAddress; stalkerEditName = portal.name; showStalkerInput = true },
+                                onToggleStalkerPortal = { id -> viewModel.onToggleStalkerPortal(id) },
+                                onMoveStalkerPortalUp = { id -> viewModel.onMoveStalkerPortalUp(id) },
+                                onMoveStalkerPortalDown = { id -> viewModel.onMoveStalkerPortalDown(id) },
+                                onRemoveStalkerPortal = { id -> viewModel.onRemoveStalkerPortal(id) },
+                                onManageStalkerCategories = { id -> openIptvCategories(id) },
+                                onRenameStalkerPortal = { portal -> stalkerRenameId = portal.id; stalkerRenameName = portal.name; showStalkerRename = true },
+                                accountInfo = uiState.iptvAccountInfo,
+                                onEditPlaylist = { idx -> editingIptvIndex = idx; showIptvInput = true },
+                                onTogglePlaylist = { idx ->
+                                    val updated = uiState.iptvPlaylists.toMutableList()
+                                    val item = updated.getOrNull(idx) ?: return@IptvSettings
+                                    updated[idx] = item.copy(enabled = !item.enabled)
+                                    viewModel.saveIptvPlaylists(updated)
+                                },
+                                onMovePlaylistUp = { idx ->
+                                    if (idx <= 0) return@IptvSettings
+                                    val updated = uiState.iptvPlaylists.toMutableList()
+                                    val item = updated.removeAt(idx)
+                                    updated.add(idx - 1, item)
+                                    viewModel.saveIptvPlaylists(updated)
+                                },
+                                onMovePlaylistDown = { idx ->
+                                    val updated = uiState.iptvPlaylists.toMutableList()
+                                    if (idx !in 0 until updated.lastIndex) return@IptvSettings
+                                    val item = updated.removeAt(idx)
+                                    updated.add(idx + 1, item)
+                                    viewModel.saveIptvPlaylists(updated)
+                                },
+                                onDeletePlaylist = { idx ->
+                                    val updated = uiState.iptvPlaylists.toMutableList()
+                                    if (idx in updated.indices) {
+                                        updated.removeAt(idx)
+                                        viewModel.saveIptvPlaylists(updated)
+                                    }
+                                },
+                                onRefresh = { viewModel.refreshIptvAndAccountInfo() },
+                                onDelete = { viewModel.clearIptvConfig() },
+                                onManageCategories = openIptvCategories,
+                                sortOrder = uiState.iptvSortOrder,
+                                onSortOrderChange = { viewModel.setIptvSortOrder(it) },
+                                vodSearchEnabled = uiState.vodSearchEnabled,
+                                onVodSearchToggle = viewModel::setVodSearchEnabled,
+                                epgVodActionsEnabled = uiState.epgVodActionsEnabled,
+                                onEpgVodActionsToggle = viewModel::setEpgVodActionsEnabled,
+                                fallbackChannelLogosEnabled = uiState.fallbackChannelLogosEnabled,
+                                onFallbackChannelLogosToggle = viewModel::setFallbackChannelLogosEnabled,
+                                favoritesOnHomeEnabled = uiState.iptvFavoritesOnHome,
+                                onFavoritesOnHomeToggle = viewModel::setIptvFavoritesOnHome,
+                            )
+                            "home_server" -> HomeServerSettings(
+                                connections = uiState.homeServerConnections,
+                                isWorking = uiState.isHomeServerConnecting,
+                                isPlexWorking = uiState.isPlexHomeServerPolling || uiState.plexHomeServerAuth != null,
+                                error = uiState.homeServerError?.localizedText(),
+                                focusedIndex = focusedIndex,
+                                onConnect = {
+                                    homeServerUrl = ""
+                                    homeServerDisplayName = ""
+                                    homeServerUsername = ""
+                                    homeServerPassword = ""
+                                    showHomeServerInput = true
+                                },
+                                onConnectPlex = {
+                                    plexHomeServerDisplayName = ""
+                                    plexHomeServerUrl = ""
+                                    showPlexHomeServerInput = true
+                                },
+                                onEditConnection = { connection ->
+                                    homeServerUrl = connection.serverUrl
+                                    homeServerDisplayName = connection.displayName
+                                    homeServerUsername = connection.userName
+                                    homeServerPassword = ""
+                                    showHomeServerInput = true
+                                },
+                                onTest = { viewModel.testHomeServerConnection() },
+                                onDisconnect = { viewModel.disconnectHomeServer() }
+                            )
+                            "catalogs" -> CatalogsSettings(
+                                catalogs = uiState.catalogs,
+                                header = {
+                                    TvSettingsSectionHeader("catalogs", uiState, stremioAddons.size)
+                                    Spacer(Modifier.height(12.dp))
+                                },
+                                focusedIndex = focusedIndex,
+                                focusedActionIndex = catalogActionIndex,
+                                onAddCatalog = { showCatalogInput = true },
+                                onImportCatalogPack = { showCatalogPackInput = true },
+                                builtInCollectionsEnabled = uiState.builtInCollectionsEnabled,
+                                onToggleBuiltInCollections = { viewModel.toggleBuiltInCollections() },
+                                onRenameCatalog = { catalog ->
+                                    if (catalog.sourceType == CatalogSourceType.YOUTUBE) {
+                                        youTubeManagerCatalogId = catalog.id
+                                    } else {
+                                        openCatalogEditor(catalog)
+                                    }
+                                },
+                                onMoveCatalogUp = { catalog -> viewModel.moveCatalogUp(catalog.id) },
+                                onMoveCatalogDown = { catalog -> viewModel.moveCatalogDown(catalog.id) },
+                                onDeleteCatalog = { catalog ->
+                                    if (catalog.isBulkDeletablePack) {
+                                        deletePackId = catalog.effectivePackId
+                                        deletePackName = catalog.effectivePackName
+                                        showDeletePackConfirm = true
+                                    } else {
+                                        viewModel.removeCatalog(catalog.id)
+                                    }
+                                },
+                                onUnpackCatalog = { catalog -> viewModel.unpackCatalog(catalog.id) }
+                            )
+                            "stremio" -> StremioAddonsSettings(
+                                addons = stremioAddons,
+                                isRefreshingAddons = uiState.isRefreshingAddons,
+                                focusedIndex = focusedIndex,
+                                focusedActionIndex = addonActionIndex,
+                                onToggleAddon = { viewModel.toggleAddon(it) },
+                                onDeleteAddon = { viewModel.removeAddon(it) },
+                                onConfigureAddon = { addonConfigureTarget = it },
+                                onAddCustomAddon = { showCustomAddonInput = true },
+                                onBrowseCommunityAddons = { showCommunityAddons = true },
+                                onRefreshAddons = { viewModel.refreshAddons() }
+                            )
+                            "plugins" -> {
+                                com.arflix.tv.ui.screens.plugin.PluginScreen(
+                                    focusedIndex = focusedIndex,
+                                    onFocusedIndexChanged = { contentFocusIndex = it },
+                                    onMaxIndexChanged = { pluginsMaxIndex = it },
+                                    enterTrigger = if (activeZone == Zone.CONTENT) pluginsEnterTrigger else -1,
+                                    onEnterTriggerHandled = { pluginsEnterTrigger = -1 },
+                                    onModalStateChanged = { pluginsModalOpen = it },
+                                    onBackPressed = { activeZone = Zone.SECTION },
+                                    onNavigateToSection = { activeZone = Zone.SECTION }
+                                )
+                            }
+                            "accounts" -> AccountsSettings(
+                                isCloudAuthenticated = uiState.isLoggedIn,
+                                cloudEmail = uiState.accountEmail,
+                                cloudHint = null,
+                                isTraktAuthenticated = uiState.isTraktAuthenticated,
+                                isForceCloudSyncing = uiState.isForceCloudSyncing,
+                                lastCloudSyncStatus = uiState.lastCloudSyncStatus?.localizedText(),
+                                diagnosticsSharingEnabled = uiState.diagnosticsSharingEnabled,
+                                usageStatisticsEnabled = uiState.usageStatisticsEnabled,
+                                isSelfUpdateSupported = uiState.isSelfUpdateSupported,
+                                updateStatus = uiState.updateStatus,
+                                focusedIndex = focusedIndex,
+                                onConnectCloud = {
+                                    if (isTouchDevice) {
+                                        viewModel.openCloudEmailPasswordDialog()
+                                    } else {
+                                        viewModel.startCloudAuth()
+                                    }
+                                },
+                                onDisconnectCloud = { showCloudDisconnectConfirm = true },
+                                onConnectTrakt = { viewModel.startTraktAuth() },
+                                onCancelTrakt = { viewModel.cancelTraktAuth() },
+                                onDisconnectTrakt = { showTraktDisconnectConfirm = true },
+                                isMdbListConnected = uiState.isMdbListConnected,
+                                onConnectMdbList = { viewModel.startMdbListAuth() },
+                                onCancelMdbList = { viewModel.cancelMdbListAuth() },
+                                onDisconnectMdbList = { showMdbListDisconnectConfirm = true },
+                                isSimklConnected = uiState.isSimklConnected,
+                                onConnectSimkl = { viewModel.startSimklAuth() },
+                                onCancelSimkl = { viewModel.cancelSimklAuth() },
+                                onDisconnectSimkl = { viewModel.disconnectSimkl() },
+                                onToggleWeTrakr = { viewModel.toggleWeTrakr() },
+                                trackingUiState = uiState,
+                                onTrackingReadMode = viewModel::setTrackingReadMode,
+                                onTrackingWriteTarget = viewModel::setTrackingWriteTarget,
+                                onForceCloudSync = { viewModel.forceCloudSyncNow() },
+                                onForceTraktSync = { viewModel.forceTraktSync() },
+                                onSwitchProfile = onSwitchProfile,
+                                onCheckUpdates = { viewModel.checkForAppUpdates(force = true, showNoUpdateFeedback = true) },
+                                onInstallUpdate = { viewModel.installAppUpdateOrRequestPermission() },
+                                quietUpdateNotifications = uiState.quietUpdateNotifications,
+                                onQuietUpdateNotificationsToggle = viewModel::setQuietUpdateNotifications,
+                                onDiagnosticsSharingToggle = viewModel::setDiagnosticsSharingEnabled,
+                                onUsageStatisticsToggle = viewModel::setUsageStatisticsEnabled,
+                                onOpenPrivacy = { openExternalUrl(context, PRIVACY_POLICY_URL) },
+                                onOpenCredits = { showCredits = true },
+                                onOpenDataDeletion = { openExternalUrl(context, ACCOUNT_DELETION_URL) },
+                                onNavigateToTelegram = onNavigateToTelegramSettings
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -3517,6 +3512,67 @@ fun SettingsScreen(
             )
         }
 
+    }
+}
+
+@Composable
+private fun SettingsPanes(content: @Composable () -> Unit) {
+    content()
+}
+
+@Composable
+private fun SettingsTopBar(
+    profile: com.arflix.tv.data.model.Profile?,
+    isFocused: () -> Boolean,
+    focusIndex: () -> Int
+) {
+    AppTopBar(
+        selectedItem = SidebarItem.SETTINGS,
+        isFocused = isFocused(),
+        focusedIndex = focusIndex(),
+        profile = profile
+    )
+}
+
+@Composable
+private fun SettingsContentFocusEffect(
+    focusIndex: () -> Int,
+    tracker: SettingsFocusTracker,
+    section: String,
+    zone: Zone,
+    catalogCount: Int,
+    addonCount: Int,
+    reveal: suspend (Int) -> Unit
+) {
+    val index = focusIndex()
+    LaunchedEffect(index, tracker, section, zone, catalogCount, addonCount) { reveal(index) }
+}
+
+@Composable
+private fun SettingsContentPane(
+    modifier: Modifier,
+    section: String,
+    scrollState: ScrollState,
+    focusTracker: SettingsFocusTracker,
+    focusIndex: () -> Int,
+    header: @Composable () -> Unit,
+    content: @Composable (Int) -> Unit
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .testTag("settings-content")
+            .onGloballyPositioned { focusTracker.viewport = it }
+            .then(if (section == "catalogs") Modifier else Modifier.verticalScroll(scrollState))
+            .padding(start = 28.dp)
+    ) {
+        if (section != "catalogs") {
+            header()
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+        CompositionLocalProvider(LocalSettingsFocusTracker provides focusTracker) {
+            content(focusIndex())
+        }
     }
 }
 

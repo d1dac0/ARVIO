@@ -18,13 +18,21 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import com.arflix.tv.worker.CloudSyncWorker
 
 @Singleton
-class CloudSyncCoordinator @Inject constructor(
-    @ApplicationContext private val context: Context,
+class CloudSyncCoordinator internal constructor(
+    private val context: Context,
     private val invalidationBus: CloudSyncInvalidationBus,
     private val cloudSyncRepository: CloudSyncRepository,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val scope: CoroutineScope
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Inject
+    constructor(
+        @ApplicationContext context: Context,
+        invalidationBus: CloudSyncInvalidationBus,
+        cloudSyncRepository: CloudSyncRepository,
+        authRepository: AuthRepository
+    ) : this(context, invalidationBus, cloudSyncRepository, authRepository, CoroutineScope(SupervisorJob() + Dispatchers.IO))
+
     private val lifecycleLock = Any()
     private var collectorJob: Job? = null
     private var flushJob: Job? = null
@@ -56,8 +64,7 @@ class CloudSyncCoordinator @Inject constructor(
                     val userId = getSyncUserIdOrNull()
                     if (userId.isNullOrBlank()) {
                         cloudSyncRepository.markLocalStateDirtyNow()
-                        CloudSyncWorker.enqueueRecovery(context)
-                        Log.w("CloudSyncCoordinator", "Queued dirty ${invalidation.scope}: auth not ready")
+                        Log.i("CloudSyncCoordinator", "Kept dirty ${invalidation.scope}: auth not ready")
                         return@collectLatest
                     }
                     Log.i(
@@ -88,45 +95,39 @@ class CloudSyncCoordinator @Inject constructor(
             flushJob = scope.launch {
                 val backoffMs = if (cloudSyncRepository.pushFailureCount > 0) {
                     // Exponential backoff: 2s, 4s, 8s, 16s... max 1 minute (for active app)
-                    (2_000L * (1 shl (cloudSyncRepository.pushFailureCount - 1).coerceAtMost(5))).coerceAtMost(60_000L)
+                    maxOf(
+                        debounceMsFor(invalidation),
+                        (2_000L * (1 shl (cloudSyncRepository.pushFailureCount - 1).coerceAtMost(5))).coerceAtMost(60_000L)
+                    )
                 } else {
-                    debounceMsFor(invalidation.scope)
+                    debounceMsFor(invalidation)
                 }
                 delay(backoffMs)
 
                 val userId = getSyncUserIdOrNull()
                 if (userId.isNullOrBlank()) {
                     cloudSyncRepository.markLocalStateDirtyNow()
-                    CloudSyncWorker.enqueueRecovery(context)
                     Log.w("CloudSyncCoordinator", "Deferred cloud sync for ${invalidation.scope}: auth not ready")
                     return@launch
                 }
                 Log.i("CloudSyncCoordinator", "Flushing cloud sync for ${invalidation.scope}")
                 try {
-                    cloudSyncRepository.pushToCloud(force = true)
+                    cloudSyncRepository.pushToCloud(force = true).getOrThrow()
                 } catch (e: CancellationException) {
                     throw e
-                } catch (e: retrofit2.HttpException) {
-                    Log.w("CloudSyncCoordinator", "HTTP error during cloud push for ${invalidation.scope}: ${e.message}")
-                    cloudSyncRepository.markLocalStateDirty()
-                    CloudSyncWorker.enqueueRecovery(context)
-                } catch (e: java.io.IOException) {
-                    Log.w("CloudSyncCoordinator", "Network error during cloud push for ${invalidation.scope}: ${e.message}")
-                    cloudSyncRepository.markLocalStateDirty()
-                    CloudSyncWorker.enqueueRecovery(context)
                 } catch (error: Exception) {
                     Log.w("CloudSyncCoordinator", "Cloud push failed after ${invalidation.scope}: ${error.message}")
                     cloudSyncRepository.markLocalStateDirty()
-                    CloudSyncWorker.enqueueRecovery(context)
+                    if (getSyncUserIdOrNull() == userId) CloudSyncWorker.enqueueRecovery(context)
                 }
             }
         }
     }
 
-    private fun debounceMsFor(scope: CloudSyncScope): Long {
-        return when (scope) {
+    private fun debounceMsFor(invalidation: CloudSyncInvalidation): Long {
+        return when (invalidation.scope) {
             CloudSyncScope.LOCAL_HISTORY -> 2_000L
-            CloudSyncScope.IPTV -> 750L
+            CloudSyncScope.IPTV -> if (invalidation.reason == "save tv session") 30_000L else 750L
             CloudSyncScope.PLUGINS -> 1_000L
             else -> 500L
         }

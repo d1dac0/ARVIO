@@ -148,16 +148,41 @@ internal fun guideProgramForAction(
     guideIdentityKeys: Set<String>,
     guideByChannelId: Map<String, IptvNowNext>,
     guideIdentityKeysByChannelId: Map<String, Set<String>>,
+    windowGuideByChannelId: Map<String, IptvNowNext> = emptyMap(),
 ): IptvProgram? {
-    guideByChannelId[channelId]?.now?.let { return it }
+    fun currentProgram(id: String) = (windowGuideByChannelId[id] ?: guideByChannelId[id])?.now
+    currentProgram(channelId)?.let { return it }
     if (guideIdentityKeys.isEmpty()) return null
     return guideIdentityKeysByChannelId.entries.firstNotNullOfOrNull { (candidateId, candidateKeys) ->
         if (candidateId != channelId && candidateKeys.any(guideIdentityKeys::contains)) {
-            guideByChannelId[candidateId]?.now
+            currentProgram(candidateId)
         } else {
             null
         }
     }
+}
+
+internal class ProgramActionGuideLookup {
+    private var indexedChannels: List<EnrichedChannel>? = null
+    private var identityKeys: Map<String, Set<String>> = emptyMap()
+
+    @Synchronized
+    fun currentProgram(
+        channel: EnrichedChannel,
+        channels: List<EnrichedChannel>,
+        snapshotGuide: Map<String, IptvNowNext>,
+        windowGuide: Map<String, IptvNowNext>,
+    ): IptvProgram? {
+        (windowGuide[channel.id] ?: snapshotGuide[channel.id])?.now?.let { return it }
+        if (indexedChannels !== channels) {
+            identityKeys = channels.associate { it.id to it.guideKeys() }
+            indexedChannels = channels
+        }
+        return guideProgramForAction(channel.id, channel.guideKeys(), snapshotGuide, identityKeys, windowGuide)
+    }
+
+    private fun EnrichedChannel.guideKeys(): Set<String> =
+        guideIdentityKeys(source.epgId, source.tvgName, source.rawTitle, name)
 }
 
 internal fun epgChannelAllowsVodSearch(

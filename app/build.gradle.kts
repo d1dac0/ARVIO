@@ -104,6 +104,11 @@ android {
         val tmdbEdgeProxy = providers.gradleProperty("arvioTmdbEdgeProxy").orNull
             ?.toBooleanStrictOrNull() ?: tmdbApiKey.isBlank()
         buildConfigField("Boolean", "ENABLE_TMDB_EDGE_PROXY", tmdbEdgeProxy.toString())
+        // The proxy decision and the key must come from the same source. The secrets plugin
+        // only reads secrets.properties, so a key passed as a CI environment variable used to
+        // turn the proxy off while BuildConfig kept the placeholder: every TMDB call then went
+        // out keyless and failed with 401 (no episodes, short Home rows, no IMDb id for addons).
+        buildConfigField("String", "TMDB_API_KEY", "\"${escapeBuildConfigString(tmdbApiKey)}\"")
         buildConfigField("Boolean", "ENABLE_TRAKT_EDGE_PROXY", "false")
         buildConfigField("Boolean", "ENABLE_REALTIME_CLOUD_SYNC", "true")
         buildConfigField("Boolean", "ENABLE_REALTIME_WATCH_SYNC", "false")
@@ -552,6 +557,8 @@ secrets {
     ignoreList.add("APP_ANON_KEY")
     ignoreList.add("SIMKL_CLIENT_SECRET")
     ignoreList.add("SENTRY_DSN")
+    // Set explicitly in defaultConfig from localSecretValue, which also reads CI env vars.
+    ignoreList.add("TMDB_API_KEY")
 }
 
 fun localSecretValue(name: String): String {

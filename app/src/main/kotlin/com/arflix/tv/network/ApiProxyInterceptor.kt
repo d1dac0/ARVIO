@@ -11,13 +11,22 @@ import okhttp3.Response
  * Intercepts selected metadata API calls and routes them through backend proxy Functions
  * only when a build flag explicitly opts in.
  */
-class ApiProxyInterceptor : Interceptor {
+class ApiProxyInterceptor(
+    private val tmdbEdgeProxy: Boolean = BuildConfig.ENABLE_TMDB_EDGE_PROXY,
+    private val proxyConfigured: () -> Boolean = ::hasProxyConfig,
+) : Interceptor {
+
+    // Set once a direct TMDB call is rejected or cannot connect: a bad baked-in key, or a
+    // network that blocks api.themoviedb.org. From then on TMDB goes through the proxy for
+    // the rest of the process instead of paying a failed direct attempt on every call.
+    @Volatile
+    private var directTmdbFailed = false
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
         val originalUrl = originalRequest.url
 
-        if (!hasProxyConfig()) {
+        if (!proxyConfigured()) {
             return chain.proceed(originalRequest)
         }
 
@@ -27,11 +36,11 @@ class ApiProxyInterceptor : Interceptor {
                 // one (forks, contributors) route through the credential-injecting proxy so
                 // Home still has a hero and rows. High-volume traffic stays direct when a
                 // key exists to avoid runaway Function billing.
-                if (BuildConfig.ENABLE_TMDB_EDGE_PROXY) {
+                if (tmdbEdgeProxy || directTmdbFailed) {
                     val proxyRequest = rewriteForTmdbProxy(originalRequest) ?: originalRequest
                     chain.proceed(proxyRequest)
                 } else {
-                    chain.proceed(originalRequest)
+                    proceedDirectTmdbWithProxyFallback(chain, originalRequest)
                 }
             }
             "api.trakt.tv" -> {
@@ -102,6 +111,25 @@ class ApiProxyInterceptor : Interceptor {
         return builder.build()
     }
 
+    private fun proceedDirectTmdbWithProxyFallback(
+        chain: Interceptor.Chain,
+        originalRequest: Request,
+    ): Response {
+        val proxyRequest = rewriteForTmdbProxy(originalRequest)
+            ?: return chain.proceed(originalRequest)
+        val direct = try {
+            chain.proceed(originalRequest)
+        } catch (e: java.io.IOException) {
+            if (chain.call().isCanceled()) throw e
+            directTmdbFailed = true
+            return chain.proceed(proxyRequest)
+        }
+        if (direct.code != 401 && direct.code != 403) return direct
+        direct.close()
+        directTmdbFailed = true
+        return chain.proceed(proxyRequest)
+    }
+
     private fun rewriteForTmdbProxy(originalRequest: Request): Request? {
         val originalUrl = originalRequest.url
 
@@ -129,16 +157,16 @@ class ApiProxyInterceptor : Interceptor {
             .header("Authorization", "Bearer ${Constants.APP_ANON_KEY}")
             .build()
     }
+}
 
-    private fun hasProxyConfig(): Boolean {
-        if (Constants.USE_NETLIFY_CLOUD_SYNC) {
-            return Constants.NETLIFY_BACKEND_URL.startsWith("https://") || Constants.NETLIFY_BACKEND_URL.startsWith("http://")
-        }
-        val supabaseUrl = Constants.SUPABASE_URL.trim()
-        val anonKey = Constants.SUPABASE_ANON_KEY.trim()
-        return (supabaseUrl.startsWith("https://") || supabaseUrl.startsWith("http://")) &&
-            !supabaseUrl.contains("your-project", ignoreCase = true) &&
-            anonKey.length > 40 &&
-            !anonKey.startsWith("your-", ignoreCase = true)
+private fun hasProxyConfig(): Boolean {
+    if (Constants.USE_NETLIFY_CLOUD_SYNC) {
+        return Constants.NETLIFY_BACKEND_URL.startsWith("https://") || Constants.NETLIFY_BACKEND_URL.startsWith("http://")
     }
+    val supabaseUrl = Constants.SUPABASE_URL.trim()
+    val anonKey = Constants.SUPABASE_ANON_KEY.trim()
+    return (supabaseUrl.startsWith("https://") || supabaseUrl.startsWith("http://")) &&
+        !supabaseUrl.contains("your-project", ignoreCase = true) &&
+        anonKey.length > 40 &&
+        !anonKey.startsWith("your-", ignoreCase = true)
 }

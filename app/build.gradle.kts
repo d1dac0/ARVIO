@@ -98,9 +98,18 @@ android {
         // fork/contributor builds do not, and a blank key used to produce an empty Home.
         // Those builds use the deployed ARVIO proxy instead (server-side TMDB key), while
         // builds with their own key keep calling TMDB directly.
-        val tmdbApiKey = localSecretValue("TMDB_API_KEY")
+        // The app sends the key as `api_key=`, which only accepts a v3 key (32 hex chars).
+        // Anything else (the v4 read token, a typo) would 401 every call, so keep the proxy.
+        val tmdbApiKeyRaw = localSecretValue("TMDB_API_KEY")
             .takeUnless { it.startsWith("your-", ignoreCase = true) }
             .orEmpty()
+        val tmdbApiKey = tmdbApiKeyRaw.takeIf { Regex("^[0-9a-fA-F]{32}$").matches(it) }.orEmpty()
+        if (tmdbApiKeyRaw.isNotEmpty() && tmdbApiKey.isEmpty()) {
+            logger.warn(
+                "TMDB_API_KEY is not a TMDB v3 API key (32 hex characters); " +
+                    "ignoring it and using the ARVIO TMDB proxy instead."
+            )
+        }
         val tmdbEdgeProxy = providers.gradleProperty("arvioTmdbEdgeProxy").orNull
             ?.toBooleanStrictOrNull() ?: tmdbApiKey.isBlank()
         buildConfigField("Boolean", "ENABLE_TMDB_EDGE_PROXY", tmdbEdgeProxy.toString())

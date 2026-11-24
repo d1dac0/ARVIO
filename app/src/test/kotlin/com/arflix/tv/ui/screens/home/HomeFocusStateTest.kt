@@ -142,6 +142,20 @@ class HomeFocusStateTest {
         assertEquals(listOf(skeleton), navigableHomeItems(listOf(skeleton)))
     }
 
+    @Test fun cachedRowKeysFollowEachPressAndARefreshedRowList() {
+        val rows = listOf(row(1, 2, 3))
+        val state = HomeFocusState()
+        state.currentItemIndex = 0
+        state.recordSelection(rows)
+        state.currentItemIndex = 2
+        state.recordSelection(rows)
+        assertEquals("MOVIE-3", state.rowItemKeysByCategoryId["row"])
+        // Same row id, new list: keys must come from the new items, not the cached ones.
+        state.recordSelection(listOf(row(7, 8, 9)))
+        assertEquals("MOVIE-9", state.rowItemKeysByCategoryId["row"])
+        assertEquals(1, state.restoredItemIndex(row(5, 9), 0))
+    }
+
     @Test fun returningToAnUpdatedRowUsesItsTitleInsteadOfItsOldIndex() {
         val state = HomeFocusState().apply {
             currentItemIndex = 1

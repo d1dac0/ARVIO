@@ -12,13 +12,11 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -168,7 +166,9 @@ import com.arflix.tv.util.TmdbImageSizing
 import com.arflix.tv.ui.components.ListPickerMenu
 import com.arflix.tv.ui.components.MediaContextMenu
 import com.arflix.tv.ui.components.rememberCardLayoutMode
+import com.arflix.tv.ui.components.normalizeCatalogueRowLayoutKey
 import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
+import com.arflix.tv.ui.components.rememberCatalogueRowLayoutModes
 import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
@@ -293,8 +293,21 @@ internal class HomeFocusState(
         recordSelection(categories)
     }
 
+    /** A row's navigable items and their stable keys, reused until the row's list changes. */
+    private class RowKeys(val source: List<MediaItem>, val items: List<MediaItem>, val keys: List<String>)
+    private val rowKeysByCategoryId = HashMap<String, RowKeys>()
+
+    // recordSelection runs on every D-pad press; rebuilding every key in the row each time
+    // is wasted work that adds up before Android has compiled the app.
+    private fun rowKeys(category: Category): RowKeys {
+        rowKeysByCategoryId[category.id]?.takeIf { it.source === category.items }?.let { return it }
+        val items = navigableHomeItems(category.items)
+        return RowKeys(category.items, items, stableHomeRowItemKeys(category.id, items))
+            .also { rowKeysByCategoryId[category.id] = it }
+    }
+
     private fun selectionKeys(category: Category): List<String> {
-        val keys = stableHomeRowItemKeys(category.id, navigableHomeItems(category.items))
+        val keys = rowKeys(category).keys
         return if (homeRowSupportsViewAll(category, categoryHasMoreMap[category.id] == true)) {
             keys + HOME_VIEW_ALL_FOCUS_KEY
         } else keys
@@ -307,7 +320,8 @@ internal class HomeFocusState(
     fun recordSelection(categories: List<Category>) {
         val category = categories.getOrNull(currentRowIndex) ?: return
         preferredCategoryId = category.id
-        val items = navigableHomeItems(category.items)
+        val rowKeys = rowKeys(category)
+        val items = rowKeys.items
         if (currentItemIndex == homeRowViewAllIndex(category, categoryHasMoreMap[category.id] == true)) {
             rowItemIndicesByCategoryId[category.id] = currentItemIndex
             rowItemKeysByCategoryId[category.id] = HOME_VIEW_ALL_FOCUS_KEY
@@ -316,7 +330,7 @@ internal class HomeFocusState(
         val item = items.getOrNull(currentItemIndex) ?: return
         rowItemIndicesByCategoryId[category.id] = currentItemIndex
         if (!item.isPlaceholder) {
-            rowItemKeysByCategoryId[category.id] = stableHomeRowItemKeys(category.id, items)[currentItemIndex]
+            rowItemKeysByCategoryId[category.id] = rowKeys.keys[currentItemIndex]
         }
     }
 
@@ -499,6 +513,9 @@ private const val HOME_VIEW_ALL_MIN_ITEMS = 15
 
 /** Focus-anchor key recorded while a row's trailing "View all" card is focused. */
 private const val HOME_VIEW_ALL_FOCUS_KEY = "__view_all__"
+
+/** Items from a row's end within which Home asks the ViewModel whether to load the next page. */
+private const val HOME_PAGING_CHECK_WINDOW = 6
 
 /**
  * Whether a home row ends with a "View all" card that opens its full paginated grid.
@@ -1039,20 +1056,34 @@ fun HomeScreen(
     // The list picker opens from the context menu and blocks Home the same way.
     val homeOverlayOpen = showContextMenu || listPicker != null
 
-    val focusedCategory = displayCategories.getOrNull(focusState.currentRowIndex)
-    val focusedHomeItem = focusedCategory?.items?.getOrNull(focusState.currentItemIndex)
+    // Focus moves on every D-pad press. HomeScreen's body must not read the focused row or
+    // item directly, or every press recomposes the whole screen (backdrop, trailer and all
+    // rows), which stutters badly before Android has compiled the app. derivedStateOf reads
+    // focus here and recomposes HomeScreen only when the derived value itself changes.
     // Reserve space before metadata arrives, keeping the rail still while a trailer loads.
-    val reserveTrailerSpace = !isMobile && uiState.trailerAutoPlay && uiState.trailerInCards &&
-        focusedCategory?.id != "continue_watching" && focusedHomeItem != null &&
-        !viewModel.isIptvItem(focusedHomeItem) && !viewModel.isCollectionItem(focusedHomeItem) &&
-        !viewModel.isSportsHomeItem(focusedHomeItem)
-    val focusedHomeTrailerKey = uiState.heroTrailerKey.takeIf {
-        !isMobile && uiState.trailerAutoPlay && !homeOverlayOpen && !focusState.isSidebarFocused &&
-            !focusState.isHeroFocused &&
-            focusedCategory?.id != "continue_watching" && focusedHomeItem != null &&
-            uiState.heroItem.isSameHomeHero(focusedHomeItem) && displayHeroItem.isSameHomeHero(focusedHomeItem) &&
-            !viewModel.isIptvItem(focusedHomeItem) && !viewModel.isCollectionItem(focusedHomeItem) &&
-            !viewModel.isSportsHomeItem(focusedHomeItem)
+    val reserveTrailerSpace by remember(displayCategories, uiState, isMobile, viewModel) {
+        derivedStateOf {
+            val focusedCategory = displayCategories.getOrNull(focusState.currentRowIndex)
+            val focusedHomeItem = focusedCategory?.items?.getOrNull(focusState.currentItemIndex)
+            !isMobile && uiState.trailerAutoPlay && uiState.trailerInCards &&
+                focusedCategory?.id != "continue_watching" && focusedHomeItem != null &&
+                !viewModel.isIptvItem(focusedHomeItem) && !viewModel.isCollectionItem(focusedHomeItem) &&
+                !viewModel.isSportsHomeItem(focusedHomeItem)
+        }
+    }
+    val focusedHomeTrailerKey by remember(displayCategories, uiState, displayHeroItem, isMobile, homeOverlayOpen, viewModel) {
+        derivedStateOf {
+            val focusedCategory = displayCategories.getOrNull(focusState.currentRowIndex)
+            val focusedHomeItem = focusedCategory?.items?.getOrNull(focusState.currentItemIndex)
+            uiState.heroTrailerKey.takeIf {
+                !isMobile && uiState.trailerAutoPlay && !homeOverlayOpen && !focusState.isSidebarFocused &&
+                    !focusState.isHeroFocused &&
+                    focusedCategory?.id != "continue_watching" && focusedHomeItem != null &&
+                    uiState.heroItem.isSameHomeHero(focusedHomeItem) && displayHeroItem.isSameHomeHero(focusedHomeItem) &&
+                    !viewModel.isIptvItem(focusedHomeItem) && !viewModel.isCollectionItem(focusedHomeItem) &&
+                    !viewModel.isSportsHomeItem(focusedHomeItem)
+            }
+        }
     }
 
     val billboardTrailerKey = uiState.heroTrailerKey.takeIf {
@@ -1173,6 +1204,10 @@ fun HomeScreen(
             .collectLatest { (rowIndex, itemIndex, sidebarFocused) ->
                 if (sidebarFocused) return@collectLatest
                 val category = latestDisplayCategories.getOrNull(rowIndex) ?: return@collectLatest
+                // Paging only starts near a row's end (the ViewModel uses 4 items), so skip the
+                // ViewModel's row lookup on every other press. The +2 margin covers the "View all"
+                // slot; a kids row's displayed index never sits nearer the end than its raw index.
+                if (itemIndex < category.items.size - HOME_PAGING_CHECK_WINDOW) return@collectLatest
                 viewModel.maybeLoadNextPageForCategory(category.id, itemIndex)
             }
     }
@@ -1239,11 +1274,14 @@ fun HomeScreen(
     var isTrailerPlaying by remember { mutableStateOf(false) }
     var trailerSuppressed by remember { mutableStateOf(false) }
     LaunchedEffect(displayHeroItem?.id) { trailerSuppressed = false }
-    val heroRowIsContinueWatching = latestDisplayCategories
-        .getOrNull(focusState.currentRowIndex)?.id == "continue_watching"
+    // derivedStateOf: these change only when focus crosses into another kind of row.
+    val heroRowIsContinueWatching by remember(displayCategories) {
+        derivedStateOf { displayCategories.getOrNull(focusState.currentRowIndex)?.id == "continue_watching" }
+    }
     // Vertical (poster) rows have no in-card trailer, so the hero plays it for them.
-    val heroRowIsPoster = latestDisplayCategories
-        .getOrNull(focusState.currentRowIndex)?.isPortrait(usePosterCards) == true
+    val heroRowIsPoster by remember(displayCategories, usePosterCards) {
+        derivedStateOf { displayCategories.getOrNull(focusState.currentRowIndex)?.isPortrait(usePosterCards) == true }
+    }
 
     var heroPlaybackHandles by remember { mutableStateOf<HomeHeroPlaybackHandles?>(null) }
     var preparedHeroVideoUrl by remember { mutableStateOf<String?>(null) }
@@ -3778,6 +3816,15 @@ private fun TvHomeRowsLayer(
     val localCurrentRowIndex = (currentRowIndex - rowWindowStart)
         .coerceIn(0, (renderedCategories.size - 1).coerceAtLeast(0))
 
+    // One settings read for every row, instead of one DataStore flow per row as it scrolls in.
+    // Until it arrives, rows use the global card mode rather than landscape, so poster rows
+    // don't compose twice and change height mid-scroll.
+    val rowLayoutKeys = remember(renderedCategories) {
+        renderedCategories.map { normalizeCatalogueRowLayoutKey("home:${it.id}") }
+    }
+    val rowLayoutModes = rememberCatalogueRowLayoutModes(rowLayoutKeys)
+    val defaultRowLayoutMode = if (usePosterCards) CardLayoutMode.POSTER else CardLayoutMode.LANDSCAPE
+
     var isFastScrolling by remember { mutableStateOf(false) }
     LaunchedEffect(focusState) {
         snapshotFlow { focusState.lastNavEventTime }
@@ -3873,8 +3920,8 @@ private fun TvHomeRowsLayer(
                 ) { index, category ->
                     val actualRowIndex = rowWindowStart + index
                     val rowIsFocused = !focusState.isSidebarFocused && actualRowIndex == focusState.currentRowIndex
-                    val rowKey = remember(category.id) { "home:${category.id}" }
-                    val rowUsePosterCards = rememberCatalogueRowLayoutMode(rowKey) == CardLayoutMode.POSTER
+                    val rowUsePosterCards = (rowLayoutModes[rowLayoutKeys.getOrNull(index)] ?: defaultRowLayoutMode) ==
+                        CardLayoutMode.POSTER
                     val rowHeight = if (rowIsFocused && reserveTrailerSpace) 284.dp else
                         if (category.isPortrait(rowUsePosterCards)) 245.dp else 202.dp
                     val onRowLoadMore = remember(category.id) {
@@ -4393,6 +4440,9 @@ internal fun ContentRow(
                     }
                 }
                 val itemIsFocused = isCurrentRow && index == focusedCardIndex
+                // Fast scrolling only changes how the focused card draws. Keeping the other
+                // cards' parameters constant lets them skip recomposition when it flips.
+                val focusedWhileFastScrolling = itemIsFocused && isFastScrolling
                 val currentItem = rememberUpdatedState(item)
                 val onCardFocused = remember(index) {
                     { latestOnItemFocused.value(currentItem.value, index) }
@@ -4440,12 +4490,12 @@ internal fun ContentRow(
                                 isLandscape = !effectivePosterMode,
                                 logoImageUrl = cardLogoUrl,
                                 showLogoImage = true,
-                                raiseOnFocus = !isFastScrolling,
+                                raiseOnFocus = !focusedWhileFastScrolling,
                                 showProgress = false,
                                 showTitle = isCollectionRow && !item.collectionHideTitle,
                                 isFocusedOverride = itemIsFocused && !railFocusOverlayActive,
                                 focusedScale = 1f,
-                                enableFocusedImageSwap = !isCollectionRow && !isFastScrolling,
+                                enableFocusedImageSwap = !isCollectionRow && !focusedWhileFastScrolling,
                                 animateFocus = false,
                                 enableSystemFocus = false,
                                 onFocused = onCardFocused,
@@ -4465,12 +4515,14 @@ internal fun ContentRow(
                 } else {
                     val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
                     val cardExpanded = hasFeaturedCard && itemIsFocused && featuredExpanded
-                    val animatedCardWidth by animateDpAsState(
-                        targetValue = if (cardExpanded) 360.dp else itemWidth,
-                        animationSpec = if (cardExpanded) spring() else snap(),
-                        label = "featuredCardWidth"
-                    )
                     if (cardExpanded) {
+                        // Only the expanded card animates; resting cards hold no animation
+                        // state (as in the ranked branch above). Collapse is instant.
+                        val expandAnim = remember { Animatable(itemWidth.value) }
+                        LaunchedEffect(Unit) {
+                            expandAnim.animateTo(360f, spring())
+                        }
+                        val animatedCardWidth = expandAnim.value.dp
                         FeaturedMediaCard(
                             item = item,
                             width = animatedCardWidth,
@@ -4493,12 +4545,12 @@ internal fun ContentRow(
                             isLandscape = !effectivePosterMode,
                             logoImageUrl = cardLogoUrl,
                             showLogoImage = true,
-                            raiseOnFocus = !isFastScrolling,
+                            raiseOnFocus = !focusedWhileFastScrolling,
                             showProgress = isContinueWatching,
                             showTitle = isCollectionRow && !item.collectionHideTitle,
                             isFocusedOverride = itemIsFocused && !railFocusOverlayActive,
                             focusedScale = 1f,
-                            enableFocusedImageSwap = !isCollectionRow && !isFastScrolling,
+                            enableFocusedImageSwap = !isCollectionRow && !focusedWhileFastScrolling,
                             animateFocus = false,
                             enableSystemFocus = false,
                             onFocused = onCardFocused,

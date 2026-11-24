@@ -94,30 +94,13 @@ android {
         // Emergency Supabase cost guard. Keep high-volume public metadata and
         // idle realtime polling off Supabase unless explicitly re-enabled.
         //
-        // Home's hero and rows come from TMDB. Official builds bake a key into the APK;
-        // fork/contributor builds do not, and a blank key used to produce an empty Home.
-        // Those builds use the deployed ARVIO proxy instead (server-side TMDB key), while
-        // builds with their own key keep calling TMDB directly.
-        // The app sends the key as `api_key=`, which only accepts a v3 key (32 hex chars).
-        // Anything else (the v4 read token, a typo) would 401 every call, so keep the proxy.
-        val tmdbApiKeyRaw = localSecretValue("TMDB_API_KEY")
-            .takeUnless { it.startsWith("your-", ignoreCase = true) }
-            .orEmpty()
-        val tmdbApiKey = tmdbApiKeyRaw.takeIf { Regex("^[0-9a-fA-F]{32}$").matches(it) }.orEmpty()
-        if (tmdbApiKeyRaw.isNotEmpty() && tmdbApiKey.isEmpty()) {
-            logger.warn(
-                "TMDB_API_KEY is not a TMDB v3 API key (32 hex characters); " +
-                    "ignoring it and using the ARVIO TMDB proxy instead."
-            )
-        }
-        val tmdbEdgeProxy = providers.gradleProperty("arvioTmdbEdgeProxy").orNull
-            ?.toBooleanStrictOrNull() ?: tmdbApiKey.isBlank()
-        buildConfigField("Boolean", "ENABLE_TMDB_EDGE_PROXY", tmdbEdgeProxy.toString())
-        // The proxy decision and the key must come from the same source. The secrets plugin
-        // only reads secrets.properties, so a key passed as a CI environment variable used to
-        // turn the proxy off while BuildConfig kept the placeholder: every TMDB call then went
-        // out keyless and failed with 401 (no episodes, short Home rows, no IMDb id for addons).
-        buildConfigField("String", "TMDB_API_KEY", "\"${escapeBuildConfigString(tmdbApiKey)}\"")
+        // Home, Details and addon lookups all call TMDB directly with this key; there is
+        // no proxy fallback. The app sends it as `api_key=`, which only accepts a v3 key
+        // (32 hex chars), so anything else is dropped here and release builds refuse to
+        // build without one (validateReleaseCloudSecrets).
+        // Set explicitly (not by the secrets plugin, which only reads secrets.properties)
+        // so a key passed as a CI environment variable reaches BuildConfig.
+        buildConfigField("String", "TMDB_API_KEY", "\"${escapeBuildConfigString(tmdbApiKeyOrEmpty())}\"")
         buildConfigField("Boolean", "ENABLE_TRAKT_EDGE_PROXY", "false")
         buildConfigField("Boolean", "ENABLE_REALTIME_CLOUD_SYNC", "true")
         buildConfigField("Boolean", "ENABLE_REALTIME_WATCH_SYNC", "false")
@@ -570,6 +553,9 @@ secrets {
     ignoreList.add("TMDB_API_KEY")
 }
 
+fun tmdbApiKeyOrEmpty(): String =
+    localSecretValue("TMDB_API_KEY").takeIf { Regex("^[0-9a-fA-F]{32}$").matches(it) }.orEmpty()
+
 fun localSecretValue(name: String): String {
     val secretsFile = rootProject.file("secrets.properties")
     if (secretsFile.exists()) {
@@ -630,6 +616,11 @@ val validateReleaseCloudSecrets = tasks.register("validateReleaseCloudSecrets") 
                 !appAnonKey.startsWith("your-", ignoreCase = true)
         ) {
             "Release builds require a real APP_ANON_KEY in secrets.properties, Gradle properties, or the environment."
+        }
+        require(tmdbApiKeyOrEmpty().isNotEmpty()) {
+            "Release builds require TMDB_API_KEY: a TMDB v3 API key (32 hex characters) in " +
+                "secrets.properties, Gradle properties, or the environment. Without it Home, " +
+                "episodes and addon sources are empty."
         }
         requireIntegration(
             traktClientId.length > 20 &&

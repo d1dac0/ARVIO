@@ -5125,10 +5125,13 @@ class SettingsViewModel @Inject constructor(
 
     fun installAppUpdateOrRequestPermission() {
         val currentStatus = updateStatusManager.status.value
-        if (currentStatus !is com.arflix.tv.updater.UpdateStatus.ReadyToInstall && currentStatus !is com.arflix.tv.updater.UpdateStatus.Failure) return
-
-        val apkPath = if (currentStatus is com.arflix.tv.updater.UpdateStatus.ReadyToInstall) currentStatus.apkPath else return
-        val update = currentStatus.update
+        // Installing: the viewer cancelled the system installer and pressed "Retry install".
+        val (apkPath, update) = when (currentStatus) {
+            is com.arflix.tv.updater.UpdateStatus.ReadyToInstall -> currentStatus.apkPath to currentStatus.update
+            is com.arflix.tv.updater.UpdateStatus.Installing ->
+                (currentStatus.apkPath ?: return) to (currentStatus.update ?: return)
+            else -> return
+        }
         val apkFile = File(apkPath)
 
         if (!apkFile.exists()) {
@@ -5147,8 +5150,13 @@ class SettingsViewModel @Inject constructor(
             return
         }
 
-        ApkInstaller.launchInstall(context, apkFile)
-        updateStatusManager.updateStatus(com.arflix.tv.updater.UpdateStatus.Installing(update))
+        if (!ApkInstaller.launchInstall(context, apkFile)) {
+            updateStatusManager.updateStatus(
+                com.arflix.tv.updater.UpdateStatus.Failure(context.getString(com.arflix.tv.R.string.update_install_failed), update)
+            )
+            return
+        }
+        updateStatusManager.updateStatus(com.arflix.tv.updater.UpdateStatus.Installing(update, apkPath))
 
         viewModelScope.launch {
             updatePreferences.setIgnoredTag(update.tag)

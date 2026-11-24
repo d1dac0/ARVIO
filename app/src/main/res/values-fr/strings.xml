@@ -839,13 +839,6 @@
     <string name="stream_metric_checked">Vérifiés</string>
 
     <!-- Extracted from code: ViewModels and receivers -->
-    <string name="update_install_manual_confirm">L’installation de la mise à jour nécessite une confirmation manuelle. Installez-la depuis Téléchargements.</string>
-    <string name="update_install_cancelled">Mise à jour annulée.</string>
-    <string name="update_install_blocked">Mise à jour bloquée par la politique du système.</string>
-    <string name="update_install_conflict">La mise à jour entre en conflit avec la version installée. Essayez d’abord de la désinstaller.</string>
-    <string name="update_install_incompatible">Mise à jour incompatible avec cet appareil.</string>
-    <string name="update_install_invalid">Le paquet de mise à jour est invalide ou corrompu.</string>
-    <string name="update_install_storage">Espace de stockage insuffisant pour installer la mise à jour.</string>
     <string name="update_install_failed">Échec de l’installation de la mise à jour.</string>
     <string name="player_ai_no_key">Sous-titres IA : aucune clé API définie. Ajoutez-la dans Paramètres → Général.</string>
     <string name="player_ai_rate_limited">Sous-titres IA : limite de débit atteinte — traduction en pause.</string>

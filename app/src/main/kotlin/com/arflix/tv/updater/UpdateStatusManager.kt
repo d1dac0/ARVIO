@@ -12,7 +12,8 @@ sealed class UpdateStatus {
     data class UpdateAvailable(val update: AppUpdate) : UpdateStatus()
     data class Downloading(val progress: Float?, val update: AppUpdate) : UpdateStatus()
     data class ReadyToInstall(val apkPath: String, val update: AppUpdate) : UpdateStatus()
-    data class Installing(val update: AppUpdate?) : UpdateStatus()
+    /** The system installer is open. [apkPath] lets "Retry install" reopen it after a cancel. */
+    data class Installing(val update: AppUpdate?, val apkPath: String? = null) : UpdateStatus()
     data object Success : UpdateStatus()
     data class Failure(val message: String, val update: AppUpdate? = null) : UpdateStatus()
 }

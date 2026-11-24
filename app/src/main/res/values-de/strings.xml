@@ -1564,13 +1564,6 @@
     <string name="stream_status_found">%1$d gefunden</string>
     <string name="stream_unknown_source">Unbekannte Quelle</string>
     <string name="stream_recommended_source">empfohlene Quelle</string>
-    <string name="update_install_manual_confirm">Die Aktualisierung erfordert manuelle Bestätigung. Bitte aus „Downloads\" installieren.</string>
-    <string name="update_install_cancelled">Aktualisierung abgebrochen.</string>
-    <string name="update_install_blocked">Aktualisierung durch Systemrichtlinie blockiert.</string>
-    <string name="update_install_conflict">Aktualisierung steht im Konflikt mit der installierten Version. Zuerst deinstallieren.</string>
-    <string name="update_install_incompatible">Aktualisierung nicht mit diesem Gerät kompatibel.</string>
-    <string name="update_install_invalid">Aktualisierungspaket ist ungültig oder beschädigt.</string>
-    <string name="update_install_storage">Nicht genug Speicherplatz für die Installation.</string>
     <string name="update_install_failed">Installation der Aktualisierung fehlgeschlagen.</string>
     <string name="details_error_load_failed">Details konnten nicht geladen werden</string>
     <string name="login_error_enter_password">Bitte gib dein Passwort ein</string>

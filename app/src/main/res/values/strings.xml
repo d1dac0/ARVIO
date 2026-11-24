@@ -1496,13 +1496,6 @@
     <string name="stream_recommended_source">recommended source</string>
 
     <!-- Extracted from code: ViewModels and receivers -->
-    <string name="update_install_manual_confirm">Update install requires manual confirmation. Please install from Downloads.</string>
-    <string name="update_install_cancelled">Update cancelled.</string>
-    <string name="update_install_blocked">Update blocked by system policy.</string>
-    <string name="update_install_conflict">Update conflicts with installed version. Try uninstalling first.</string>
-    <string name="update_install_incompatible">Update not compatible with this device.</string>
-    <string name="update_install_invalid">Update package is invalid or corrupted.</string>
-    <string name="update_install_storage">Not enough storage to install update.</string>
     <string name="update_install_failed">Update install failed.</string>
     <string name="player_ai_no_key">AI subtitles: no API key set. Add it in Settings → General.</string>
     <string name="player_ai_rate_limited">AI subtitles: rate limit hit — translation paused.</string>

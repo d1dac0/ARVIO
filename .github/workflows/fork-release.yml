@@ -95,9 +95,8 @@ jobs:
           # they take priority over the placeholders in secrets.defaults.properties.
           TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
           TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
-          # TMDB v3 API key (not the v4 read access token). When set, the app calls TMDB
-          # directly and ENABLE_TMDB_EDGE_PROXY turns off, so Home no longer depends on
-          # upstream's auth.arvio.tv proxy. When empty, the build keeps using the proxy.
+          # Required: TMDB v3 API key (not the v4 read access token). The app calls TMDB
+          # directly with it; the release build fails without a valid one.
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
           ./gradlew assembleSideloadRelease --no-daemon \

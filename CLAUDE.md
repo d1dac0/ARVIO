@@ -157,8 +157,8 @@ does not mark things dirty again.
 
 **Networking.** Every Retrofit API shares the process-wide `OkHttpProvider.client`. It is initialized
 in `ArflixApplication.attachBaseContext` because Hilt builds the repositories before `onCreate` runs.
-`ApiProxyInterceptor` on that client reroutes TMDB calls through the backend proxy when
-`ENABLE_TMDB_EDGE_PROXY` is set, and SIMKL calls when no client ID is built in.
+TMDB is always called directly with the baked-in `TMDB_API_KEY` (no proxy). `ApiProxyInterceptor`
+on that client only reroutes SIMKL calls through the backend proxy when no client ID is built in.
 
 **Processes.** The manifest runs seek-preview extraction in `:seek_preview`
 (`docs/SEEK-KEYFRAME-WORKER.md`) and the crash screen in `:crash`. `ArflixApplication.onCreate`

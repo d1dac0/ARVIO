@@ -74,18 +74,15 @@ works.
 
 ### TMDB metadata
 
-Home's hero and default rows are built from TMDB. A build without a real
-`TMDB_API_KEY` sets `ENABLE_TMDB_EDGE_PROXY=true` and calls the deployed
-`auth.arvio.tv` TMDB proxy, which injects the key server-side, so fork APKs show
-content without per-device setup. Add `TMDB_API_KEY` (repository secret or
-`secrets.properties`) to call TMDB directly instead. Use the TMDB **API Key** (v3),
-not the API Read Access Token: the app sends it as the `api_key` query parameter.
-`fork-release.yml` passes the `TMDB_API_KEY` repository secret to the release build.
-`-ParvioTmdbEdgeProxy=true`
-or `false` forces either mode for a one-off build.
+Home, Details (episodes) and addon lookups (the IMDb id that Torrentio and other
+Stremio addons need) all call TMDB directly with `TMDB_API_KEY`. There is no
+proxy: the app does not depend on upstream's `auth.arvio.tv` for TMDB.
 
-Without a key and without the proxy, Home is empty; the rest of the app remains
-usable for addons and home servers.
+Use the TMDB **API Key** (v3, 32 hex characters), not the API Read Access Token:
+the app sends it as the `api_key` query parameter. Put it in the `TMDB_API_KEY`
+repository secret (`fork-release.yml` passes it to the release build) or in
+`secrets.properties` for local builds. Release builds fail without a valid key;
+debug builds still build, but Home, episodes and addon sources stay empty.
 
 ## Optional integration credentials
 

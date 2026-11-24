@@ -1,31 +1,18 @@
 package com.arflix.tv.updater
 
-import android.app.PendingIntent
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInfo
-import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import androidx.annotation.WorkerThread
 import androidx.core.content.FileProvider
-import androidx.profileinstaller.DeviceProfileWriter
-import androidx.profileinstaller.ProfileInstaller
-import com.arflix.tv.BuildConfig
 import com.arflix.tv.R
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileInputStream
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
 object ApkInstaller {
-    /** Set on the status intent when the session included base.dm, with [EXTRA_APK_PATH]. */
-    const val EXTRA_WITH_DEX_METADATA = "com.arflix.tv.updater.WITH_DEX_METADATA"
-    const val EXTRA_APK_PATH = "com.arflix.tv.updater.APK_PATH"
-
     fun canRequestPackageInstalls(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.packageManager.canRequestPackageInstalls()
@@ -111,154 +98,70 @@ object ApkInstaller {
     }
 
     /**
-     * @param withDexMetadata false skips base.dm; used by [ApkInstallReceiver] to retry once
-     * when an install that included it fails.
+     * Hands the downloaded APK to Android's package installer, the same way installing an APK
+     * from a file manager does. The system installer then shows its own screens: a
+     * confirmation, an "Installing..." progress screen, and when it finishes "App installed"
+     * with an Open button, so the viewer can see the update finish and relaunch ARVIO.
+     *
+     * A PackageInstaller session (used before) could also install the baseline profile as
+     * base.dm, but on a session the system shows only the confirmation: ARVIO closed with no
+     * sign of when the install had finished.
+     *
+     * Returns false when no installer accepted the APK.
      */
-    fun launchInstall(context: Context, apkFile: File, withDexMetadata: Boolean = true) {
-        ApkInstallWorker.enqueue(context, apkFile, withDexMetadata)
-    }
-
-    @WorkerThread
-    internal fun installNow(context: Context, apkFile: File, withDexMetadata: Boolean): Boolean {
-        // Try session-based installer first (smoother UX on Android 5+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            try {
-                val metadata = if (withDexMetadata) createDexMetadata(context, apkFile) else null
-                try {
-                    commitSession(context, apkFile, metadata)
-                } catch (e: DexMetadataWriteException) {
-                    // The failed session may contain a partial base.dm. Never commit it.
-                    System.err.println("[ApkInstaller] Retrying a clean APK-only session: ${e.cause?.message}")
-                    commitSession(context, apkFile, null)
-                }
-                return true
-            } catch (e: Exception) {
-                System.err.println("[ApkInstaller] Session install failed, falling back to ACTION_VIEW: ${e.message}")
+    fun launchInstall(context: Context, apkFile: File, sdkInt: Int = Build.VERSION.SDK_INT): Boolean {
+        val target = installerTarget(sdkInt)
+        val uri = try {
+            when (target.uriKind) {
+                InstallerUriKind.FILE_PROVIDER -> FileProvider.getUriForFile(
+                    context, "${context.packageName}.fileprovider", apkFile
+                )
+                InstallerUriKind.LEGACY_FILE -> Uri.fromFile(copyToSharedCache(context, apkFile))
             }
-        }
-
-        // Fallback: classic ACTION_VIEW install (used when the session path throws OR on API < 21).
-        try {
-            val uri = FileProvider.getUriForFile(context, "${BuildConfig.APPLICATION_ID}.fileprovider", apkFile)
-            val intent = Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, "application/vnd.android.package-archive")
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-            context.startActivity(intent)
-            return true
         } catch (e: Exception) {
-            System.err.println("[ApkInstaller] Fallback ACTION_VIEW install failed: ${e.message}")
+            System.err.println("[ApkInstaller] Could not expose the APK to the installer: ${e.message}")
             return false
         }
-    }
-
-    private fun commitSession(context: Context, apkFile: File, metadata: ByteArray?) {
-        val installer = context.packageManager.packageInstaller
-        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-        params.setSize(apkFile.length() + (metadata?.size ?: 0))
-        val sessionId = installer.createSession(params)
-        var committed = false
-        try {
-            installer.openSession(sessionId).use { session ->
-                // Named base.apk so the dex metadata can pair with it as base.dm.
-                session.openWrite("base.apk", 0, apkFile.length()).use { out ->
-                    FileInputStream(apkFile).use { input -> input.copyTo(out) }
-                    session.fsync(out)
-                }
-                if (metadata != null) {
-                    try {
-                        session.openWrite("base.dm", 0, metadata.size.toLong()).use { out ->
-                            out.write(metadata)
-                            session.fsync(out)
-                        }
-                    } catch (e: Exception) {
-                        throw DexMetadataWriteException(e)
-                    }
-                }
-
-                // The receiver opens the system confirmation UI when user action is needed.
-                val intent = Intent(ApkInstallReceiver.actionFor(context))
-                    .setPackage(context.packageName)
-                if (metadata != null) {
-                    intent.putExtra(EXTRA_WITH_DEX_METADATA, true)
-                        .putExtra(EXTRA_APK_PATH, apkFile.absolutePath)
-                }
-                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-                } else {
-                    PendingIntent.FLAG_UPDATE_CURRENT
-                }
-                val pendingIntent = PendingIntent.getBroadcast(
-                    context.applicationContext, sessionId, intent, flags
-                )
-                session.commit(pendingIntent.intentSender)
-                committed = true
+        for (action in target.actions) {
+            val intent = Intent(action)
+                .setDataAndType(uri, APK_MIME_TYPE)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (target.uriKind == InstallerUriKind.FILE_PROVIDER) {
+                intent.clipData = ClipData.newRawUri("ARVIO update", uri)
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-        } finally {
-            if (!committed) runCatching { installer.abandonSession(sessionId) }
-        }
-    }
-
-    private class DexMetadataWriteException(cause: Exception) : Exception(cause)
-
-    /**
-     * Adds the APK's own baseline profile to the session as base.dm, so the system compiles
-     * the update with it at install time. Without it, a sideloaded update runs uncompiled
-     * (slow Home scrolling) until background dexopt picks up the profile, which on TV boxes
-     * that rarely sit idle-but-awake can take days.
-     *
-     * Dex metadata exists from Android 9. The profile is converted to this device's ART
-     * format first (Android 12+ reads only a newer format than the one shipped in the APK).
-     * Any failure here just leaves the install without dex metadata.
-     *
-     * Prepared before opening a session, so failures here cannot leave a partial base.dm.
-     */
-    internal fun createDexMetadata(context: Context, apkFile: File): ByteArray? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
-        try {
-            val profile = deviceProfileOf(context, apkFile) ?: return null
-            val dm = ByteArrayOutputStream()
-            ZipOutputStream(dm).use { zip ->
-                zip.putNextEntry(ZipEntry("primary.prof"))
-                zip.write(profile)
-                zip.closeEntry()
+            try {
+                context.startActivity(intent)
+                return true
+            } catch (e: Exception) {
+                System.err.println("[ApkInstaller] Installer rejected $action: ${e.message}")
             }
-            return dm.toByteArray()
-        } catch (e: Exception) {
-            System.err.println("[ApkInstaller] Skipping dex metadata: ${e.message}")
-            return null
         }
+        return false
     }
 
     /**
-     * The downloaded APK's assets/dexopt profile, transcoded by ProfileInstaller to the format
-     * this device's ART expects, the same conversion it does for the installed app on first run.
-     * Null when the APK has no profile or the device format isn't supported.
+     * Android 6's installer only accepts APKs through `file:` URIs, from storage it can read;
+     * Android 7+ takes `content:` URIs and rejects exposed `file:` ones. OEM installers differ
+     * on which action they register, so ACTION_VIEW is tried first, then ACTION_INSTALL_PACKAGE.
      */
-    private fun deviceProfileOf(context: Context, apkFile: File): ByteArray? {
-        val pm = context.packageManager
-        @Suppress("DEPRECATION")
-        val appInfo = pm.getPackageArchiveInfo(apkFile.absolutePath, 0)?.applicationInfo ?: return null
-        appInfo.sourceDir = apkFile.absolutePath
-        appInfo.publicSourceDir = apkFile.absolutePath
-        val assets = pm.getResourcesForApplication(appInfo).assets
-        val out = File.createTempFile("update-profile", ".prof", context.cacheDir)
-        try {
-            val writer = DeviceProfileWriter(
-                assets, Runnable::run, NoProfileDiagnostics,
-                "base.apk", "dexopt/baseline.prof", "dexopt/baseline.profm", out
-            )
-            if (!writer.deviceAllowsProfileInstallerAotWrites()) return null
-            if (!writer.read().transcodeIfNeeded().write()) return null
-            return out.readBytes().takeIf { it.isNotEmpty() }
-        } finally {
-            out.delete()
-        }
+    @Suppress("DEPRECATION")
+    internal fun installerTarget(sdkInt: Int): InstallerTarget = InstallerTarget(
+        uriKind = if (sdkInt <= Build.VERSION_CODES.M) InstallerUriKind.LEGACY_FILE else InstallerUriKind.FILE_PROVIDER,
+        actions = listOf(Intent.ACTION_VIEW, Intent.ACTION_INSTALL_PACKAGE),
+    )
+
+    internal enum class InstallerUriKind { FILE_PROVIDER, LEGACY_FILE }
+
+    internal data class InstallerTarget(val uriKind: InstallerUriKind, val actions: List<String>)
+
+    /** The app's cache is private, so on Android 6 the installer reads a copy in external cache. */
+    private fun copyToSharedCache(context: Context, apkFile: File): File {
+        val root = context.externalCacheDir ?: error("External cache is unavailable")
+        val dir = File(root, "updates").apply { mkdirs() }
+        dir.listFiles()?.forEach { it.delete() }
+        return apkFile.copyTo(File(dir, apkFile.name), overwrite = true)
     }
 
-    private object NoProfileDiagnostics : ProfileInstaller.DiagnosticsCallback {
-        override fun onDiagnosticReceived(code: Int, data: Any?) = Unit
-        override fun onResultReceived(code: Int, data: Any?) = Unit
-    }
+    private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
 }

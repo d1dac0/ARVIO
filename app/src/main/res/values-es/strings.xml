@@ -1186,13 +1186,6 @@
     <string name="stream_recommended_source">fuente recomendada</string>
 
     <!-- Extracted from code: ViewModels and receivers -->
-    <string name="update_install_manual_confirm">La instalación de la actualización requiere confirmación manual. Por favor, instala desde Descargas.</string>
-    <string name="update_install_cancelled">Actualización cancelada.</string>
-    <string name="update_install_blocked">Actualización bloqueada por la política del sistema.</string>
-    <string name="update_install_conflict">La actualización entra en conflicto con la versión instalada. Prueba a desinstalar primero.</string>
-    <string name="update_install_incompatible">La actualización no es compatible con este dispositivo.</string>
-    <string name="update_install_invalid">El paquete de actualización no es válido o está corrupto.</string>
-    <string name="update_install_storage">No hay suficiente espacio para instalar la actualización.</string>
     <string name="update_install_failed">La instalación de la actualización falló.</string>
     <string name="player_ai_no_key">Subtítulos IA: no se ha configurado la clave API. Añádela en Ajustes → General.</string>
     <string name="player_ai_rate_limited">Subtítulos IA: límite de uso alcanzado — traducción pausada.</string>

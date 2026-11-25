@@ -26,7 +26,22 @@ message for docs-only or CI-irrelevant commits.
 Never commit `release.keystore`, `keystore.properties`, `secrets.properties`, or any API key.
 Losing the keystore means installed builds can never be updated again — it must be backed up.
 
-## Building and testing (Windows, this machine)
+## TV release builds (Windows, this machine)
+
+For every completed Android app change, build a fork-signed sideload release APK before handing
+it off. Verify the APK signature and give Diego the APK path or GitHub release link so he can
+install it on his TV. For a local APK destined for an existing installation, use the version
+overrides above to choose a versionCode at least as high as the installed fork build.
+
+After all fixes in the batch are merged into main, publish the fork-signed release to the TV
+update channel. Use the Fork release workflow triggered by the final merge and monitor it until
+it succeeds. Check that the published release includes the final merged commit and signed APKs,
+then share its GitHub release link. If the final merge does not trigger the workflow, run Fork
+release on main. Docs-only and CI-irrelevant changes follow the skip rule above.
+
+Describe checks by the behavior they verified, such as “restart playback from 0:00.” Use
+“signed release APK” for the TV deliverable. Keep build variant and Gradle task names in
+technical commands and diagnostics where required.
 
 The DSH file sandbox cannot write `%USERPROFILE%\.gradle`, so point Gradle at a workspace-local
 home or every build dies with `AccessDeniedException`:
@@ -38,7 +53,7 @@ $env:GRADLE_USER_HOME = Join-Path (Get-Location) '.gradle\user-home'
   "-ParvioAllowMissingIntegrations=true" --no-daemon
 ```
 
-- Builds are slow: ~25 min for a release APK, 10–20 min for a debug compile even when incremental.
+- Builds are slow: about 25 minutes for a release APK and 10–20 minutes for focused checks.
   Run them as background jobs and keep working; do not poll in a tight loop.
 - Expected noise: `Unable to initialize metrics` (sandboxed `~/.android`), `Couldn't open current
   thread` from Gradle's file watcher, and Kotlin daemon failures that fall back to in-process

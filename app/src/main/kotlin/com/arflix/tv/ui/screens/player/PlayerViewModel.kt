@@ -7827,6 +7827,8 @@ class PlayerViewModel @Inject constructor(
         episodeNumber: Int?,
         navigationStartPositionMs: Long?
     ): ResumeData {
+        // An explicit zero requests a restart. Null still resolves saved progress.
+        if (navigationStartPositionMs == 0L) return ResumeData(positionMs = 0L)
         val navStart = navigationStartPositionMs?.coerceAtLeast(0L) ?: 0L
 
         val cloudEntry = watchHistoryRepository.getProgress(mediaType, mediaId, seasonNumber, episodeNumber)

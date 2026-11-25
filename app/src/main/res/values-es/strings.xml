@@ -51,6 +51,7 @@
     <string name="sources">Fuentes</string>
     <string name="details">Detalles</string>
     <string name="play">Reproducir</string>
+    <string name="details_start_from_beginning">Empezar desde el principio</string>
     <string name="trailer">Tráiler</string>
     <string name="seasons">Temporadas</string>
     <string name="season_label">Temporada</string>

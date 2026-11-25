@@ -86,6 +86,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Visibility
@@ -242,6 +243,19 @@ private object DetailsScreenRegexes {
     val YEAR_REGEX = Regex("""\d{4}""")
 }
 
+private const val START_FROM_BEGINNING_BUTTON = 7
+
+private enum class SourcePickerMode { RESUME, START_FROM_BEGINNING }
+
+private fun DetailsUiState.canRestartPlayback(selectedEpisode: Episode?): Boolean {
+    if (!isPlaybackTargetReady || isSyncingProgress) return false
+    return if (selectedEpisode == null) {
+        (playPositionMs ?: 0L) > 0L
+    } else {
+        selectedEpisode.identity in episodePlaybackProgress
+    }
+}
+
 /**
  * Details screen for movies and TV shows
  */
@@ -307,7 +321,7 @@ fun DetailsScreen(
     // Start on buttons for both TV and movies (buttons are now shown for both)
     var focusedSection by rememberSaveable(mediaType, mediaId) { mutableStateOf(FocusSection.BUTTONS) }
     var hasEnteredDetails by rememberSaveable(mediaType, mediaId, initialSeason, initialEpisode) { mutableStateOf(false) }
-    var buttonIndex by rememberSaveable(mediaType, mediaId) { mutableIntStateOf(0) }
+    var focusedButton by rememberSaveable(mediaType, mediaId) { mutableIntStateOf(0) }
     var episodeIndex by rememberSaveable { mutableIntStateOf(0) }
     var selectedEpisodeIdentity by rememberSaveable(mediaType, mediaId) {
         mutableStateOf<EpisodeIdentity?>(null)
@@ -327,7 +341,11 @@ fun DetailsScreen(
     var sidebarFocusIndex by remember { mutableIntStateOf(if (hasProfile) 2 else 1) }
 
     // Stream Selector state
-    var showStreamSelector by remember { mutableStateOf(false) }
+    var sourcePickerMode by remember(mediaType, mediaId) { mutableStateOf<SourcePickerMode?>(null) }
+    fun openSourcePicker(imdbId: String?, identity: EpisodeIdentity?, mode: SourcePickerMode = SourcePickerMode.RESUME) {
+        sourcePickerMode = mode
+        viewModel.loadStreams(imdbId, identity)
+    }
     var showTrailerPlayer by remember { mutableStateOf(false) }
     // Tell the app shell the trailer covers the screen, so the bottom bar stops
     // reserving its height. Reset on leaving, or the bar would stay hidden.
@@ -355,7 +373,7 @@ fun DetailsScreen(
     ) {
         val state = currentUiState.value
         if (!viewModel.canStartPlayback(state.idleSyncRevision)) return
-        showStreamSelector = false
+        sourcePickerMode = null
         val identity = state.episodes.firstOrNull {
             it.seasonNumber == displaySeason && it.episodeNumber == displayEpisode
         }?.identity ?: viewModel.resolveEpisodeIdentity(
@@ -400,7 +418,7 @@ fun DetailsScreen(
     LaunchedEffect(mediaType, mediaId, initialSeason, initialEpisode) {
         if (!hasEnteredDetails) {
             focusedSection = FocusSection.BUTTONS
-            buttonIndex = 0
+            focusedButton = 0
             episodeIndex = 0
             selectedEpisodeIdentity = null
             ratingsIndex = 0
@@ -500,7 +518,6 @@ fun DetailsScreen(
         hasCollectionButton -> 6
         else -> 5
     }
-    val maxActionButtonIndex = 4 + (if (hasCollectionButton) 1 else 0) + (if (hasPersonalLists) 1 else 0)
     val currentListButtonIndex = rememberUpdatedState(listButtonIndex)
     val currentEpisodeIndex = rememberUpdatedState(episodeIndex)
     val currentSelectedEpisodeIdentity = rememberUpdatedState(selectedEpisodeIdentity)
@@ -516,7 +533,7 @@ fun DetailsScreen(
             selectedEpisodeIdentity = null
             selectedEpisodeRevision = uiState.idleSyncRevision
             tappedEpisode = null
-            showStreamSelector = false
+            sourcePickerMode = null
         }
     }
     fun selectedEpisodeIn(state: DetailsUiState, identity: EpisodeIdentity?): Episode? =
@@ -524,15 +541,32 @@ fun DetailsScreen(
         else state.episodes.firstOrNull { it.identity == identity }
             ?: currentTappedEpisode.value?.takeIf { it.identity == identity }
 
-    val onButtonClickRemembered = remember(isMobile, mediaType, mediaId) {
-        { idx: Int ->
+    val selectedEpisode = selectedEpisodeIn(uiState, selectedEpisodeIdentity)
+    val showStartFromBeginning = uiState.canRestartPlayback(selectedEpisode)
+    val actionButtons = remember(showStartFromBeginning, hasCollectionButton, listButtonIndex) {
+        buildList {
+            add(0)
+            if (showStartFromBeginning) add(START_FROM_BEGINNING_BUTTON)
+            addAll(1..4)
+            if (hasCollectionButton) add(5)
+            if (listButtonIndex >= 0) add(listButtonIndex)
+        }
+    }
+    val buttonIndex = actionButtons.indexOf(focusedButton).coerceAtLeast(0)
+    val maxActionButtonIndex = actionButtons.lastIndex
+
+    val onButtonClickRemembered: (Int) -> Unit = remember(isMobile, mediaType, mediaId) {
+        click@{ idx: Int ->
             val state = currentUiState.value
             val currentEpIdx = currentEpisodeIndex.value
             val selectedEp = selectedEpisodeIn(state, currentSelectedEpisodeIdentity.value)
             // While a post-idle sync runs the play target may still be the stale one.
-            if (idx in 0..1 && !viewModel.canStartPlayback(state.idleSyncRevision)) Unit
+            if ((idx in 0..1 || idx == START_FROM_BEGINNING_BUTTON) &&
+                !viewModel.canStartPlayback(state.idleSyncRevision)) Unit
             else if (idx == currentListButtonIndex.value) viewModel.openListPicker() else when (idx) {
-                0 -> { // Play
+                0, START_FROM_BEGINNING_BUTTON -> {
+                    val startFromBeginning = idx == START_FROM_BEGINNING_BUTTON
+                    if (startFromBeginning && !state.canRestartPlayback(selectedEp)) return@click
                     val season = if (mediaType == MediaType.TV) {
                         selectedEp?.seasonNumber
                             ?: state.playSeason
@@ -545,19 +579,13 @@ fun DetailsScreen(
                             ?: state.episodes.getOrNull(currentEpIdx)?.episodeNumber
                             ?: 1
                     } else null
-                    val startPositionMs = if (
-                        selectedEp != null
-                    ) {
-                        state.episodePlaybackProgress[selectedEp.identity]?.positionMs
-                    } else if (mediaType == MediaType.TV &&
-                        season == state.playSeason &&
-                        episode == state.playEpisode
-                    ) {
-                        state.playPositionMs
-                    } else if (mediaType == MediaType.MOVIE) {
-                        state.playPositionMs
-                    } else null
-
+                    val startPositionMs = when {
+                        startFromBeginning -> 0L
+                        selectedEp != null -> state.episodePlaybackProgress[selectedEp.identity]?.positionMs?.takeIf { it > 0L }
+                        mediaType == MediaType.MOVIE || (season == state.playSeason && episode == state.playEpisode) ->
+                            state.playPositionMs?.takeIf { it > 0L }
+                        else -> null
+                    }
                     val youTubeVideoId = YouTubeCollection.videoIdFromMetaId(state.imdbId)
                     if (youTubeVideoId != null) {
                         // A YouTube collection video has exactly one source: play it as if
@@ -570,7 +598,6 @@ fun DetailsScreen(
                         )
                     } else if (!state.autoPlaySingleSource) {
                         // Autoplay OFF → open the source picker; never auto-play.
-                        showStreamSelector = true
                         val identity = selectedEp?.identity ?: state.episodes.firstOrNull {
                             it.seasonNumber == season && it.episodeNumber == episode
                         }?.identity ?: viewModel.resolveEpisodeIdentity(
@@ -579,7 +606,8 @@ fun DetailsScreen(
                             tmdbSeason = state.playTmdbSeason ?: season,
                             tmdbEpisode = state.playTmdbEpisode ?: episode,
                         )
-                        viewModel.loadStreams(state.imdbId, identity)
+                        val mode = if (startFromBeginning) SourcePickerMode.START_FROM_BEGINNING else SourcePickerMode.RESUME
+                        openSourcePicker(state.imdbId, identity, mode)
                     } else {
                         // Autoplay ON → go straight to the player; PlayerScreen auto-picks.
                         requestFastAutoPlay(
@@ -590,9 +618,8 @@ fun DetailsScreen(
                     }
                 }
                 1 -> { // Sources
-                    showStreamSelector = true
                     val ep = selectedEp ?: state.episodes.getOrNull(currentEpIdx)
-                    viewModel.loadStreams(state.imdbId, ep?.identity)
+                    openSourcePicker(state.imdbId, ep?.identity)
                 }
                 2 -> { // Trailer
                     state.trailerKey?.let { showTrailerPlayer = true }
@@ -650,12 +677,11 @@ fun DetailsScreen(
                     selectedEpisodeIdentity = ep.identity
                 } else if (isMobile || !state.autoPlaySingleSource) {
                     selectedEpisodeIdentity = ep.identity
-                    showStreamSelector = true
-                    viewModel.loadStreams(state.imdbId, ep.identity)
+                    openSourcePicker(state.imdbId, ep.identity)
                 } else {
                     requestFastAutoPlay(
                         state.imdbId, ep.seasonNumber, ep.episodeNumber,
-                        state.episodePlaybackProgress[ep.identity]?.positionMs,
+                        state.episodePlaybackProgress[ep.identity]?.positionMs?.takeIf { it > 0L },
                         ep.tmdbSeasonNumber, ep.tmdbEpisodeNumber
                     )
                 }
@@ -696,7 +722,7 @@ fun DetailsScreen(
         }
     }
 
-    BackHandler(enabled = !showStreamSelector && !showEpisodeContextMenu && !showSeasonContextMenu && !uiState.showPersonModal && !showTrailerPlayer) {
+    BackHandler(enabled = sourcePickerMode == null && !showEpisodeContextMenu && !showSeasonContextMenu && !uiState.showPersonModal && !showTrailerPlayer) {
         // Issue 2: leaving within the dwell window must not leak a scraping session.
         viewModel.cancelStreamPrefetch()
         onBack()
@@ -722,7 +748,7 @@ fun DetailsScreen(
                     return@onPreviewKeyEvent true
                 }
                 // Check if any modal is showing — let the modal handle all keys exclusively
-                if (showStreamSelector || showEpisodeContextMenu || showSeasonContextMenu || uiState.showPersonModal || showTrailerPlayer || listPicker != null) {
+                if (sourcePickerMode != null || showEpisodeContextMenu || showSeasonContextMenu || uiState.showPersonModal || showTrailerPlayer || listPicker != null) {
                     return@onPreviewKeyEvent false
                 }
                 if (event.type == KeyEventType.KeyUp && isArvioDpadNavigationKey(event.key)) {
@@ -789,7 +815,7 @@ fun DetailsScreen(
                                 } else {
                                     handleLeft(
                                         focusedSection, buttonIndex, episodeIndex, ratingsIndex, seasonIndex, castIndex, reviewIndex, similarIndex, collectionIndex,
-                                        { buttonIndex = it }, { episodeIndex = it }, { ratingsIndex = it }, { seasonIndex = it },
+                                        { focusedButton = actionButtons[it] }, { episodeIndex = it }, { ratingsIndex = it }, { seasonIndex = it },
                                         { castIndex = it }, { reviewIndex = it }, { similarIndex = it },
                                         { collectionIndex = it }
                                     )
@@ -813,7 +839,7 @@ fun DetailsScreen(
                                     uiState.reviews.size,
                                     uiState.similar.size,
                                     uiState.collectionItems.size,
-                                    { buttonIndex = it }, { episodeIndex = it }, { ratingsIndex = it }, { seasonIndex = it },
+                                    { focusedButton = actionButtons[it] }, { episodeIndex = it }, { ratingsIndex = it }, { seasonIndex = it },
                                     { castIndex = it }, { reviewIndex = it }, { similarIndex = it },
                                     { collectionIndex = it }
                                 )
@@ -899,7 +925,7 @@ fun DetailsScreen(
                             }
                             when (focusedSection) {
                                 FocusSection.BUTTONS -> {
-                                    onButtonClickRemembered(buttonIndex)
+                                    onButtonClickRemembered(actionButtons[buttonIndex])
                                 }
                                 FocusSection.EPISODES -> {
                                     onEpisodeClickRemembered(episodeIndex)
@@ -992,7 +1018,6 @@ fun DetailsScreen(
                 )
             } else {
                 uiState.item?.let { item ->
-                    val selectedEpisode = selectedEpisodeIn(uiState, selectedEpisodeIdentity)
                     val selectedProgress = selectedEpisode?.let {
                         uiState.episodePlaybackProgress[it.identity]
                     }
@@ -1025,7 +1050,7 @@ fun DetailsScreen(
                         listButtonIndex = listButtonIndex,
                         collectionIndex = collectionIndex,
                         focusedSection = focusedSection,
-                        buttonIndex = buttonIndex,
+                        buttonIndex = actionButtons[buttonIndex],
                         episodeIndex = episodeIndex,
                         ratingsIndex = ratingsIndex,
                         seasonIndex = seasonIndex,
@@ -1040,6 +1065,7 @@ fun DetailsScreen(
                         episodePlaybackProgress = uiState.episodePlaybackProgress,
                         selectedEpisodeIdentity = selectedEpisodeIdentity.takeIf { selectedEpisodeRevision == uiState.idleSyncRevision },
                         playLabel = effectivePlayLabel,
+                        showStartFromBeginning = showStartFromBeginning,
                         showEpisodeRatings = uiState.showEpisodeRatings,
                         hasTrailer = uiState.trailerKey != null,
                         contentHasFocus = !isSidebarFocused,
@@ -1102,7 +1128,7 @@ fun DetailsScreen(
             uiState.streams + uiState.addonNotices.mapIndexed(::addonNoticeRow)
         }
         StreamSelector(
-            isVisible = showStreamSelector,
+            isVisible = sourcePickerMode != null,
             streams = selectorStreams,
             selectedStream = null,
             recentSource = uiState.recentSource,
@@ -1138,11 +1164,12 @@ fun DetailsScreen(
                     )
                     return@StreamSelector
                 }
-                showStreamSelector = false
+                val pickerMode = sourcePickerMode ?: return@StreamSelector
+                sourcePickerMode = null
                 val identity = uiState.streamsEpisodeIdentity
                     ?: uiState.episodes.firstOrNull { it.identity == selectedEpisodeIdentity }?.identity
                     ?: uiState.episodes.getOrNull(episodeIndex)?.identity
-                val startPositionMs = if (mediaType == MediaType.MOVIE) {
+                val resumePositionMs = if (mediaType == MediaType.MOVIE) {
                     uiState.playPositionMs
                 } else {
                     identity?.let { uiState.episodePlaybackProgress[it]?.positionMs }
@@ -1150,6 +1177,11 @@ fun DetailsScreen(
                             identity?.displaySeason == uiState.playSeason &&
                             identity?.displayEpisode == uiState.playEpisode
                         ) uiState.playPositionMs else null
+                }
+                val startPositionMs = if (pickerMode == SourcePickerMode.START_FROM_BEGINNING) {
+                    0L
+                } else {
+                    resumePositionMs?.takeIf { it > 0L }
                 }
                 viewModel.cancelStreamSearch()
                 viewModel.cancelStreamPrefetch()
@@ -1168,7 +1200,7 @@ fun DetailsScreen(
             },
             onClose = {
                 viewModel.cancelStreamSearch()
-                showStreamSelector = false
+                sourcePickerMode = null
                 try { focusRequester.requestFocus() } catch (_: Exception) {}
             }
         )
@@ -1184,14 +1216,13 @@ fun DetailsScreen(
                     showEpisodeContextMenu = false
                     requestFastAutoPlay(
                         uiState.imdbId, episode.seasonNumber, episode.episodeNumber,
-                        uiState.episodePlaybackProgress[episode.identity]?.positionMs,
+                        uiState.episodePlaybackProgress[episode.identity]?.positionMs?.takeIf { it > 0L },
                         episode.tmdbSeasonNumber, episode.tmdbEpisodeNumber
                     )
                 },
                 onSelectSource = {
                     showEpisodeContextMenu = false
-                    showStreamSelector = true
-                    viewModel.loadStreams(uiState.imdbId, episode.identity)
+                    openSourcePicker(uiState.imdbId, episode.identity)
                 },
                 onToggleWatched = {
                     viewModel.markEpisodeWatched(
@@ -1293,6 +1324,7 @@ private fun DetailsContent(
     episodePlaybackProgress: Map<EpisodeIdentity, EpisodePlaybackProgress> = emptyMap(),
     selectedEpisodeIdentity: EpisodeIdentity? = null,
     playLabel: String? = null,
+    showStartFromBeginning: Boolean = false,
     hasTrailer: Boolean = false,
     contentHasFocus: Boolean = true,
     usePosterCards: Boolean = false,
@@ -1658,6 +1690,16 @@ private fun DetailsContent(
                             .height(58.dp),
                         onClick = { onButtonClick(0) }
                     )
+
+                    if (showStartFromBeginning) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        MobileActionButton(
+                            icon = Icons.Default.Replay,
+                            text = stringResource(R.string.details_start_from_beginning),
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            onClick = { onButtonClick(START_FROM_BEGINNING_BUTTON) }
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -2447,6 +2489,16 @@ private fun DetailsContent(
                             isPrimary = true,
                             isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == 0
                         )
+                    }
+                    if (showStartFromBeginning) {
+                        Box(modifier = Modifier.clickable(role = Role.Button) { onButtonClick(START_FROM_BEGINNING_BUTTON) }) {
+                            PremiumActionButton(
+                                icon = Icons.Default.Replay,
+                                text = stringResource(R.string.details_start_from_beginning),
+                                isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == START_FROM_BEGINNING_BUTTON,
+                                alwaysShowLabel = true
+                            )
+                        }
                     }
                     Box(modifier = Modifier.clickable { onButtonClick(1) }) {
                         PremiumActionButton(
@@ -4015,7 +4067,8 @@ private fun PremiumActionButton(
     isFocused: Boolean,
     isPrimary: Boolean = false,
     isIconOnly: Boolean = false,
-    isActive: Boolean = false
+    isActive: Boolean = false,
+    alwaysShowLabel: Boolean = false
 ) {
     val shape = RoundedCornerShape(12.dp)
     val density = LocalDensity.current
@@ -4030,7 +4083,7 @@ private fun PremiumActionButton(
     val collapsedPadding = 0.dp
     val labelSpacing = 8.dp
     val labelExtraWidth = 6.dp
-    val showLabel = isFocused && text.isNotBlank()
+    val showLabel = (isFocused || alwaysShowLabel) && text.isNotBlank()
 
     val labelWidthPx = remember(text, density) {
         if (text.isBlank()) 0 else {

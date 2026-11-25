@@ -11,12 +11,15 @@ import com.arflix.tv.data.model.StreamSource
 import com.arflix.tv.data.repository.IptvConnectionLimit
 import com.arflix.tv.data.repository.StreamIntegrationRepository
 import com.arflix.tv.data.repository.StreamRepository
+import com.arflix.tv.data.repository.WatchHistoryEntry
+import com.arflix.tv.data.repository.WatchHistoryRepository
 import com.arflix.tv.data.repository.effectiveSettingsDataStore
 import com.arflix.tv.data.repository.iptvStreamPolicy
 import com.arflix.tv.network.IptvAccountAvailability
 import com.arflix.tv.network.IptvAdmission
 import com.arflix.tv.network.IptvProviderAccount
 import com.arflix.tv.ui.screens.player.subtitles.MatroskaIndexSource
+import com.google.common.truth.Truth.assertThat
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -57,6 +60,7 @@ private const val EFFECTIVE_SETTINGS_FILE = "com.arflix.tv.data.repository.Partn
 class IptvSecondaryRequestsTest {
     private val sources = mockk<StreamRepository>(relaxed = true)
     private val integrations = mockk<StreamIntegrationRepository>(relaxed = true)
+    private val watchHistory = mockk<WatchHistoryRepository>(relaxed = true)
     private val store = ViewModelStore()
     private lateinit var model: PlayerViewModel
     private val url = "https://cdn.example/movie/user/pass/1.mkv"
@@ -72,7 +76,7 @@ class IptvSecondaryRequestsTest {
             context = RuntimeEnvironment.getApplication(), profileManager = mockk(relaxed = true),
             mediaRepository = mockk(relaxed = true), streamRepository = sources,
             traktRepository = mockk(relaxed = true), remoteSyncManager = mockk(relaxed = true),
-            watchHistoryRepository = mockk(relaxed = true), cloudSyncRepository = mockk(relaxed = true),
+            watchHistoryRepository = watchHistory, cloudSyncRepository = mockk(relaxed = true),
             launcherContinueWatchingRepository = mockk(relaxed = true), animeMapper = mockk(relaxed = true),
             tmdbApi = mockk(relaxed = true), skipIntroRepository = mockk(relaxed = true),
             playbackTelemetryRepository = mockk(relaxed = true), pluginManager = mockk(relaxed = true),
@@ -122,6 +126,24 @@ class IptvSecondaryRequestsTest {
         awaitState { it.selectedStreamUrl == url }
         coVerify(exactly = 0) { sources.iptvStreamPolicyFor(any()) }
         coVerify(exactly = 0) { IptvAccountAvailability.admit(any()) }
+    }
+
+    @Test fun startingOverFromASelectedVodSourceBypassesTheSavedResumePosition() = withAdmission {
+        coEvery { watchHistory.getProgress(MediaType.MOVIE, 7, null, null) } returns WatchHistoryEntry(
+            user_id = "test", media_type = "movie", show_tmdb_id = 7, position_seconds = 600
+        )
+        coEvery { IptvAccountAvailability.admit(any()) } returns IptvAdmission.Proceed
+
+        for ((startPositionMs, expectedPositionMs) in listOf(0L to 0L, null to 600_000L)) {
+            model.loadMedia(
+                mediaType = MediaType.MOVIE, mediaId = 7, seasonNumber = null, episodeNumber = null,
+                providedImdbId = null, providedStreamUrl = url, preferredAddonId = IptvVodSourceIds.XTREAM,
+                preferredSourceName = "Movie", preferredBingeGroup = null, startPositionMs = startPositionMs,
+                providedIptvSourceId = "list_a"
+            )
+            val state = awaitState { !it.isLoading && it.selectedStreamUrl == url }
+            assertThat(state.savedPosition).isEqualTo(expectedPositionMs)
+        }
     }
 
     @Test fun retryAfterAFullAccountAsksAgainAndPlayAnywayDoesNot() = withAdmission {

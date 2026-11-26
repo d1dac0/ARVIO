@@ -28,6 +28,7 @@ import com.arflix.tv.data.model.SportsAddonCapabilities
 import com.arflix.tv.R
 import com.arflix.tv.data.repository.KidsContentFilter
 import com.arflix.tv.data.repository.MediaRepository
+import com.arflix.tv.data.repository.TOP_RATED_BY_YEAR_MIN_YEAR
 import com.arflix.tv.data.repository.PersonalListsRepository
 import com.arflix.tv.ui.components.PersonalListPicker
 import com.arflix.tv.network.OkHttpProvider
@@ -96,6 +97,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.cancelAndJoin
 import kotlin.math.roundToInt
 import java.util.Collections
+import java.util.Calendar
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -105,6 +107,9 @@ data class HomeUiState(
     val isLoading: Boolean = false,
     val isInitialLoad: Boolean = true,
     val categories: List<Category> = emptyList(),
+    val topRatedByYearItems: List<MediaItem> = emptyList(),
+    val topRatedByYearSelectedYear: Int = Calendar.getInstance().get(Calendar.YEAR),
+    val isTopRatedByYearLoading: Boolean = true,
     val collectionRows: List<HomeCollectionRow> = emptyList(),
     val error: String? = null,
     // Current hero (may update during transitions)
@@ -320,9 +325,26 @@ internal fun applyWatchedBadges(
  */
 internal fun HomeUiState.withWatchedBadges(watchedMovies: Set<Int>, startedShows: Set<Int>): HomeUiState {
     val updatedCategories = applyWatchedBadges(categories, watchedMovies, startedShows)
-    val updatedHero = heroWithWatchedBadge(heroItem, updatedCategories)
-    if (updatedCategories === categories && updatedHero === heroItem) return this
-    return copy(categories = updatedCategories, heroItem = updatedHero)
+    val topRatedCategory = Category("top_rated_by_year", "Top Rated by Year", topRatedByYearItems)
+    val updatedTopRatedItems = applyWatchedBadges(
+        categories = listOf(topRatedCategory),
+        watchedMovies = watchedMovies,
+        startedShows = startedShows
+    ).single().items
+    val updatedHero = heroWithWatchedBadge(
+        heroItem,
+        updatedCategories + topRatedCategory.copy(items = updatedTopRatedItems)
+    )
+    if (
+        updatedCategories === categories &&
+        updatedTopRatedItems === topRatedByYearItems &&
+        updatedHero === heroItem
+    ) return this
+    return copy(
+        categories = updatedCategories,
+        topRatedByYearItems = updatedTopRatedItems,
+        heroItem = updatedHero
+    )
 }
 
 /**
@@ -429,11 +451,13 @@ class HomeViewModel @Inject constructor(
             state.categories.filterNot { it.id == FAVORITE_TV_CATEGORY_ID },
             kids
         )
+        val topRatedByYearItems = kidsContentFilter.filter(state.topRatedByYearItems, kids)
         val hero = state.heroItem?.takeIf(kids::allows)
             ?: categories.asSequence().flatMap { it.items }.firstOrNull { !it.isPlaceholder }
         val sameHero = hero == state.heroItem
         return state.copy(
             categories = categories,
+            topRatedByYearItems = topRatedByYearItems,
             heroItem = hero,
             heroLogoUrl = state.heroLogoUrl.takeIf { sameHero },
             heroTrailerKey = state.heroTrailerKey.takeIf { sameHero },
@@ -1693,6 +1717,8 @@ class HomeViewModel @Inject constructor(
     }
     val cardLogoUrls = mutableStateMapOf<String, String>()
     val cardImdbRatings = mutableStateMapOf<String, String>()
+    private var topRatedByYearJob: Job? = null
+    private var loadedTopRatedByYear: Int? = null
 
     // Debounce job for hero updates (Phase 6.1)
     private var heroUpdateJob: Job? = null
@@ -1980,6 +2006,9 @@ class HomeViewModel @Inject constructor(
         _homeWatchlistItems.value = emptyList()
         continueWatchingRequests.reset()
         loadHomeJob?.cancel()
+        topRatedByYearJob?.cancel()
+        topRatedByYearJob = null
+        loadedTopRatedByYear = null
         refreshContinueWatchingJob?.cancel()
         cwFetchJob?.cancel()
         cwFetchJob = null
@@ -2191,6 +2220,9 @@ class HomeViewModel @Inject constructor(
         heroUpdateJob?.cancel()
         heroDetailsJob?.cancel()
         prefetchJob?.cancel()
+        topRatedByYearJob?.cancel()
+        topRatedByYearJob = null
+        loadedTopRatedByYear = null
         heroDetailsCache.clear()
         heroDetailsFetchInFlight.clear()
         lastResolvedBaseCategories = emptyList()
@@ -2935,6 +2967,7 @@ class HomeViewModel @Inject constructor(
         loadHomeJob = viewModelScope.launch loadHome@{
             if (requestId != loadHomeRequestId) return@loadHome
             applyContentLanguageFromPrefs()
+            ensureTopRatedByYearLoaded()
 
             try {
                 val existingCw = _uiState.value.categories.firstOrNull { it.id == "continue_watching" && it.items.isNotEmpty() }
@@ -3695,6 +3728,62 @@ class HomeViewModel @Inject constructor(
                     }
                 }
             }
+        }
+    }
+
+    fun selectTopRatedByYear(year: Int) {
+        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+        val selectedYear = year.coerceIn(TOP_RATED_BY_YEAR_MIN_YEAR, currentYear)
+        if (
+            loadedTopRatedByYear == selectedYear &&
+            _uiState.value.topRatedByYearSelectedYear == selectedYear &&
+            topRatedByYearJob?.isActive != true
+        ) return
+
+        topRatedByYearJob?.cancel()
+        _uiState.value = _uiState.value.copy(
+            topRatedByYearSelectedYear = selectedYear,
+            topRatedByYearItems = emptyList(),
+            isTopRatedByYearLoading = true
+        )
+        topRatedByYearJob = viewModelScope.launch(networkDispatcher) {
+            // The row is independent of the first Home paint and resolves many TMDB-to-IMDb IDs.
+            // Let the critical catalog and artwork requests finish before this background work.
+            delayUntilStartupSettled(extraDelayMs = 1_000L)
+            val items = try {
+                mediaRepository.getTopRatedMoviesByYear(selectedYear)
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                AppLogger.recordException(
+                    throwable = error,
+                    context = mapOf("error_area" to "TopRatedByYear", "year" to selectedYear.toString())
+                )
+                emptyList()
+            }
+            withContext(Dispatchers.Main.immediate) {
+                if (_uiState.value.topRatedByYearSelectedYear != selectedYear) return@withContext
+                loadedTopRatedByYear = selectedYear
+                items.forEach { item ->
+                    if (item.imdbRating.isNotBlank()) {
+                        cardImdbRatings["${item.mediaType}_${item.id}"] = item.imdbRating
+                    }
+                }
+                val updatedState = _uiState.value.copy(
+                    topRatedByYearItems = items,
+                    isTopRatedByYearLoading = false
+                )
+                _uiState.value = lastWatchedBadgesLookup?.let { (watchedMovies, startedShows) ->
+                    updatedState.withWatchedBadges(watchedMovies, startedShows)
+                } ?: updatedState
+                preloadLogosForCategoryItems(items.take(8))
+            }
+        }
+    }
+
+    private fun ensureTopRatedByYearLoaded() {
+        val selectedYear = _uiState.value.topRatedByYearSelectedYear
+        if (loadedTopRatedByYear != selectedYear && topRatedByYearJob?.isActive != true) {
+            selectTopRatedByYear(selectedYear)
         }
     }
 

@@ -142,6 +142,7 @@ import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.CollectionTileShape
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
+import com.arflix.tv.data.repository.TOP_RATED_BY_YEAR_MIN_YEAR
 import com.arflix.tv.data.model.isPortrait
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.FeaturedMediaCard
@@ -409,6 +410,7 @@ internal fun localizedCategoryTitle(category: Category): String = when (category
     "collection_row_featured"  -> stringResource(R.string.featured)
     "top10_movies_today"       -> stringResource(R.string.home_top10_movies_today)
     "top10_shows_today"        -> stringResource(R.string.home_top10_shows_today)
+    TOP_RATED_BY_YEAR_CATEGORY_ID -> stringResource(R.string.home_top_rated_by_year)
     "favorite_tv"              -> stringResource(R.string.home_favorite_tv)
     "sports"                   -> stringResource(R.string.home_sports)
     "popular_live_tv"          -> stringResource(R.string.home_popular_live_sports)
@@ -523,7 +525,11 @@ private const val HOME_PAGING_CHECK_WINDOW = 6
  * collection tiles (which need their own routing) are excluded.
  */
 internal fun homeRowSupportsViewAll(category: Category, hasMore: Boolean): Boolean {
-    if (category.id == "continue_watching" || category.id.startsWith("collection_row_")) return false
+    if (
+        category.id == "continue_watching" ||
+        category.id == TOP_RATED_BY_YEAR_CATEGORY_ID ||
+        category.id.startsWith("collection_row_")
+    ) return false
     val realItems = category.items.filterNot { it.isPlaceholder }
     if (realItems.isEmpty()) return false
     val hasNonTitleItems = realItems.any { item ->
@@ -847,6 +853,7 @@ fun HomeScreen(
         val matchingItem = uiState.categories.asSequence()
             .flatMap { it.items.asSequence() }
             .firstOrNull { it.id == mediaId && it.mediaType == mediaType }
+            ?: uiState.topRatedByYearItems.firstOrNull { it.id == mediaId && it.mediaType == mediaType }
             ?: homeWatchlistItems.firstOrNull { it.id == mediaId && it.mediaType == mediaType }
             ?: uiState.heroItem?.takeIf { it.id == mediaId && it.mediaType == mediaType }
         if (matchingItem != null) {
@@ -895,8 +902,15 @@ fun HomeScreen(
     val rawDisplayCategories = remember(uiState.categories, sportsHomeRows) {
         viewModel.withSportsHomeRows(uiState.categories, sportsHomeRows)
     }
-    val displayCategories = remember(rawDisplayCategories, homeWatchlistItems) {
-        withHomeWatchlistRow(deduplicateHomeCategories(rawDisplayCategories), homeWatchlistItems, enabled = true)
+    val displayCategories = remember(rawDisplayCategories, homeWatchlistItems, uiState.topRatedByYearItems) {
+        withTopRatedByYearRow(
+            categories = withHomeWatchlistRow(
+                deduplicateHomeCategories(rawDisplayCategories),
+                homeWatchlistItems,
+                enabled = true
+            ),
+            items = uiState.topRatedByYearItems
+        )
     }
     val displayHeroItem = uiState.heroItem
         ?: if (uiState.categories.isEmpty()) {
@@ -1634,6 +1648,9 @@ fun HomeScreen(
             syncStatus = uiState.syncStatus,
             hasUpdateBadge = uiState.hasUpdateBadge,
             categoryHasMoreMap = uiState.categoryHasMoreMap,
+            topRatedByYearSelectedYear = uiState.topRatedByYearSelectedYear,
+            isTopRatedByYearLoading = uiState.isTopRatedByYearLoading,
+            onTopRatedByYearSelected = viewModel::selectTopRatedByYear,
             smoothScrolling = uiState.smoothScrolling,
             isSlowLoading = uiState.isMobileSlowLoading,
             onRetry = { viewModel.retryMobileHomeLoading() },
@@ -1713,7 +1730,7 @@ fun HomeScreen(
         }
 
         // Error state - show message when loading failed and no content
-        if (!uiState.isLoading && displayCategories.isEmpty() && uiState.error != null) {
+        if (!uiState.isLoading && rawDisplayCategories.isEmpty() && uiState.error != null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2824,6 +2841,9 @@ internal fun HomeInputLayer(
     syncStatus: com.arflix.tv.data.repository.CloudSyncStatus = com.arflix.tv.data.repository.CloudSyncStatus.NOT_SIGNED_IN,
     hasUpdateBadge: Boolean = false,
     categoryHasMoreMap: Map<String, Boolean> = emptyMap(),
+    topRatedByYearSelectedYear: Int = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR),
+    isTopRatedByYearLoading: Boolean = false,
+    onTopRatedByYearSelected: (Int) -> Unit = {},
     smoothScrolling: Boolean = true,
     isSlowLoading: Boolean = false,
     onRetry: () -> Unit = {},
@@ -2855,6 +2875,8 @@ internal fun HomeInputLayer(
     var selectPressedInHome by remember { mutableStateOf(false) }
     var selectDownAtMs by remember { mutableLongStateOf(0L) }
     var rootHasFocus by remember { mutableStateOf(false) }
+    var topRatedYearSelectorFocused by rememberSaveable { mutableStateOf(false) }
+    val currentTopRatedYear = remember { java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) }
     val backPress = remember { HomeBackPress() }
     val backScope = rememberCoroutineScope()
     var backHoldJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -3046,6 +3068,74 @@ internal fun HomeInputLayer(
             // Reconcile against this render's data before applying new input, not in
             // an asynchronous effect after a background update and key press race.
             focusState.reconcile(categories, categoryHasMoreMap)
+            val focusedCategory = categories.getOrNull(focusState.currentRowIndex)
+            if (topRatedYearSelectorFocused && focusedCategory?.id != TOP_RATED_BY_YEAR_CATEGORY_ID) {
+                topRatedYearSelectorFocused = false
+            }
+            if (
+                !topRatedYearSelectorFocused &&
+                !focusState.isSidebarFocused &&
+                !focusState.isHeroFocused &&
+                focusedCategory?.id == TOP_RATED_BY_YEAR_CATEGORY_ID &&
+                event.type == KeyEventType.KeyDown &&
+                event.key == Key.DirectionUp
+            ) {
+                topRatedYearSelectorFocused = true
+                focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                return@onPreviewKeyEvent true
+            }
+            if (topRatedYearSelectorFocused) {
+                if (event.type == KeyEventType.KeyUp &&
+                    (isArvioDpadNavigationKey(event.key) || event.key == Key.Enter || event.key == Key.DirectionCenter)
+                ) {
+                    return@onPreviewKeyEvent true
+                }
+                if (event.type == KeyEventType.KeyDown) {
+                    when (event.key) {
+                        Key.DirectionLeft, Key.DirectionRight -> {
+                            val increment = if ((event.key == Key.DirectionRight) xor isRtl) 1 else -1
+                            onTopRatedByYearSelected(
+                                (topRatedByYearSelectedYear + increment)
+                                    .coerceIn(TOP_RATED_BY_YEAR_MIN_YEAR, currentTopRatedYear)
+                            )
+                            focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                            return@onPreviewKeyEvent true
+                        }
+                        Key.DirectionDown -> {
+                            topRatedYearSelectorFocused = false
+                            if (focusedCategory?.items.isNullOrEmpty() && focusState.currentRowIndex < categories.lastIndex) {
+                                focusState.currentRowIndex++
+                                focusState.currentItemIndex = 0
+                            } else {
+                                focusState.currentItemIndex = 0
+                            }
+                            focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                            return@onPreviewKeyEvent true
+                        }
+                        Key.DirectionUp -> {
+                            topRatedYearSelectorFocused = false
+                            if (focusState.currentRowIndex > 0) {
+                                focusState.currentRowIndex--
+                                val targetCategory = categories.getOrNull(focusState.currentRowIndex)
+                                val restoredIndex = targetCategory?.id
+                                    ?.let(focusState.rowItemIndicesByCategoryId::get)
+                                    ?: 0
+                                focusState.currentItemIndex = targetCategory
+                                    ?.let { focusState.restoredItemIndex(it, restoredIndex) }
+                                    ?: 0
+                            } else if (netflix?.billboardItem != null) {
+                                focusState.isHeroFocused = true
+                                focusState.heroButtonIndex = 0
+                            } else {
+                                focusState.isSidebarFocused = true
+                            }
+                            focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                            return@onPreviewKeyEvent true
+                        }
+                        Key.Enter, Key.DirectionCenter -> return@onPreviewKeyEvent true
+                    }
+                }
+            }
             if (netflix != null) {
                 handleNetflixHomeKey(
                     event = event,
@@ -3106,6 +3196,10 @@ internal fun HomeInputLayer(
                         selectDownAtMs = 0L
                         focusState.userHasNavigated = true
                         if (focusState.isSidebarFocused) {
+                            true
+                        } else if (categories.getOrNull(focusState.currentRowIndex)?.id == TOP_RATED_BY_YEAR_CATEGORY_ID) {
+                            topRatedYearSelectorFocused = true
+                            focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             true
                         } else if (focusState.currentRowIndex > 0) {
                             // Save current item position before leaving this row
@@ -3298,6 +3392,11 @@ internal fun HomeInputLayer(
             usePosterCards = usePosterCards,
             isMobile = isMobile,
             categoryHasMoreMap = categoryHasMoreMap,
+            topRatedByYearSelectedYear = topRatedByYearSelectedYear,
+            currentTopRatedYear = currentTopRatedYear,
+            isTopRatedByYearLoading = isTopRatedByYearLoading,
+            isTopRatedYearSelectorFocused = topRatedYearSelectorFocused,
+            onTopRatedByYearSelected = onTopRatedByYearSelected,
             smoothScrolling = smoothScrolling,
             isSlowLoading = isSlowLoading,
             onRetry = onRetry,
@@ -3370,6 +3469,11 @@ private fun HomeRowsLayer(
     usePosterCards: Boolean,
     isMobile: Boolean = false,
     categoryHasMoreMap: Map<String, Boolean> = emptyMap(),
+    topRatedByYearSelectedYear: Int,
+    currentTopRatedYear: Int,
+    isTopRatedByYearLoading: Boolean,
+    isTopRatedYearSelectorFocused: Boolean,
+    onTopRatedByYearSelected: (Int) -> Unit,
     smoothScrolling: Boolean = true,
     isSlowLoading: Boolean = false,
     onRetry: () -> Unit = {},
@@ -3403,6 +3507,11 @@ private fun HomeRowsLayer(
             focusState = focusState,
             contentStartPadding = contentStartPadding,
             categoryHasMoreMap = categoryHasMoreMap,
+            topRatedByYearSelectedYear = topRatedByYearSelectedYear,
+            currentTopRatedYear = currentTopRatedYear,
+            isTopRatedByYearLoading = isTopRatedByYearLoading,
+            isTopRatedYearSelectorFocused = isTopRatedYearSelectorFocused,
+            onTopRatedByYearSelected = onTopRatedByYearSelected,
             smoothScrolling = smoothScrolling,
             onLoadMoreCategory = onLoadMoreCategory,
             onViewAllCategory = onViewAllCategory,
@@ -3433,6 +3542,10 @@ private fun HomeRowsLayer(
                         if (visibleItem != null) onItemFocusedPrefetch(visibleItem)
                     },
                     categoryHasMoreMap = categoryHasMoreMap,
+                    topRatedByYearSelectedYear = topRatedByYearSelectedYear,
+                    currentTopRatedYear = currentTopRatedYear,
+                    isTopRatedByYearLoading = isTopRatedByYearLoading,
+                    onTopRatedByYearSelected = onTopRatedByYearSelected,
                     isSlowLoading = isSlowLoading,
                     onRetry = onRetry
                 )
@@ -3448,6 +3561,10 @@ private fun HomeRowsLayer(
                     onSwitchProfile = onSwitchProfile,
                     usePosterCards = usePosterCards,
                     categoryHasMoreMap = categoryHasMoreMap,
+                    topRatedByYearSelectedYear = topRatedByYearSelectedYear,
+                    currentTopRatedYear = currentTopRatedYear,
+                    isTopRatedByYearLoading = isTopRatedByYearLoading,
+                    onTopRatedByYearSelected = onTopRatedByYearSelected,
                     isSlowLoading = isSlowLoading,
                     onRetry = onRetry,
                     onLoadMoreCategory = onLoadMoreCategory,
@@ -3477,6 +3594,11 @@ private fun HomeRowsLayer(
             fastScrollThresholdMs = fastScrollThresholdMs,
             usePosterCards = usePosterCards,
             categoryHasMoreMap = categoryHasMoreMap,
+            topRatedByYearSelectedYear = topRatedByYearSelectedYear,
+            currentTopRatedYear = currentTopRatedYear,
+            isTopRatedByYearLoading = isTopRatedByYearLoading,
+            isTopRatedYearSelectorFocused = isTopRatedYearSelectorFocused,
+            onTopRatedByYearSelected = onTopRatedByYearSelected,
             smoothScrolling = smoothScrolling,
             onLoadMoreCategory = onLoadMoreCategory,
             onItemFocusedPrefetch = onItemFocusedPrefetch,
@@ -3503,6 +3625,10 @@ private fun MobileHomeRowsLayer(
     onNavigateToSearch: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     categoryHasMoreMap: Map<String, Boolean> = emptyMap(),
+    topRatedByYearSelectedYear: Int,
+    currentTopRatedYear: Int,
+    isTopRatedByYearLoading: Boolean,
+    onTopRatedByYearSelected: (Int) -> Unit,
     isSlowLoading: Boolean = false,
     onRetry: () -> Unit = {},
     onLoadMoreCategory: (String) -> Unit = {},
@@ -3598,9 +3724,19 @@ private fun MobileHomeRowsLayer(
                                 blurRadius = 4f
                             )
                         ),
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = if (category.id == TOP_RATED_BY_YEAR_CATEGORY_ID) Modifier.weight(1f) else Modifier
                     )
-                    if (showViewAll) {
+                    if (category.id == TOP_RATED_BY_YEAR_CATEGORY_ID) {
+                        TopRatedByYearSelector(
+                            selectedYear = topRatedByYearSelectedYear,
+                            currentYear = currentTopRatedYear,
+                            isFocused = false,
+                            onYearSelected = onTopRatedByYearSelected
+                        )
+                    } else if (showViewAll) {
                         Spacer(modifier = Modifier.weight(1f))
                         Text(
                             text = stringResource(R.string.home_view_all),
@@ -3619,9 +3755,15 @@ private fun MobileHomeRowsLayer(
                 } else {
                     rowUsePosterCards
                 }
-                val isRowSkeleton = category.items.isEmpty() || category.items.all { it.isPlaceholder }
+                val isTopRatedByYearRow = category.id == TOP_RATED_BY_YEAR_CATEGORY_ID
+                val isRowSkeleton = (category.items.isEmpty() && (!isTopRatedByYearRow || isTopRatedByYearLoading)) ||
+                    category.items.all { it.isPlaceholder }
 
-                if (isRowSkeleton) {
+                if (isTopRatedByYearRow && category.items.isEmpty() && !isTopRatedByYearLoading) {
+                    TopRatedByYearEmptyMessage(
+                        modifier = Modifier.padding(start = contentStartPadding, end = 16.dp)
+                    )
+                } else if (isRowSkeleton) {
                     // Render structured skeleton cards while category metadata is loading
                     LazyRow(
                         state = rowState,
@@ -3784,6 +3926,11 @@ private fun TvHomeRowsLayer(
     fastScrollThresholdMs: Long,
     usePosterCards: Boolean,
     categoryHasMoreMap: Map<String, Boolean> = emptyMap(),
+    topRatedByYearSelectedYear: Int,
+    currentTopRatedYear: Int,
+    isTopRatedByYearLoading: Boolean,
+    isTopRatedYearSelectorFocused: Boolean,
+    onTopRatedByYearSelected: (Int) -> Unit,
     smoothScrolling: Boolean = true,
     onLoadMoreCategory: (String) -> Unit = {},
     onItemFocusedPrefetch: (MediaItem) -> Unit = {},
@@ -3960,6 +4107,11 @@ private fun TvHomeRowsLayer(
                             usePosterCards = rowUsePosterCards,
                             startPadding = contentStartPadding,
                             categoryHasMore = rowHasMore,
+                            topRatedByYearSelectedYear = topRatedByYearSelectedYear,
+                            currentTopRatedYear = currentTopRatedYear,
+                            isTopRatedByYearLoading = isTopRatedByYearLoading,
+                            isTopRatedYearSelectorFocused = rowIsFocused && isTopRatedYearSelectorFocused,
+                            onTopRatedByYearSelected = onTopRatedByYearSelected,
                             smoothScrolling = smoothScrolling,
                             onLoadMore = onRowLoadMore,
                             showViewAll = rowViewAllIndex >= 0,
@@ -4193,6 +4345,11 @@ internal fun ContentRow(
     usePosterCards: Boolean = false,
     startPadding: androidx.compose.ui.unit.Dp = 12.dp,
     categoryHasMore: Boolean = false,
+    topRatedByYearSelectedYear: Int = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR),
+    currentTopRatedYear: Int = topRatedByYearSelectedYear,
+    isTopRatedByYearLoading: Boolean = false,
+    isTopRatedYearSelectorFocused: Boolean = false,
+    onTopRatedByYearSelected: (Int) -> Unit = {},
     smoothScrolling: Boolean = true,
     onLoadMore: () -> Unit = {},
     showViewAll: Boolean = false,
@@ -4210,6 +4367,7 @@ internal fun ContentRow(
     val rowState = rememberLazyListState()
     val density = LocalDensity.current
     val isContinueWatching = category.id == "continue_watching"
+    val isTopRatedByYearRow = category.id == TOP_RATED_BY_YEAR_CATEGORY_ID
     // Poster rows felt too tight vertically when focused. Instead of adding more
     // row spacing (which made the section layout feel loose), slightly reduce the
     // poster card width so the 1.05x focus zoom has more breathing room inside the
@@ -4218,8 +4376,8 @@ internal fun ContentRow(
     val cardAspectRatio = if (effectivePosterMode) 2f / 3f else 16f / 9f
     val itemWidth = if (effectivePosterMode) HOME_TV_POSTER_CARD_WIDTH_DP.dp else HOME_TV_LANDSCAPE_CARD_WIDTH_DP.dp
     val itemSpacing = 14.dp
-    val itemsToRender = remember(category.items) {
-        if (category.items.isEmpty()) {
+    val itemsToRender = remember(category.items, isTopRatedByYearLoading) {
+        if (category.items.isEmpty() && (!isTopRatedByYearRow || isTopRatedByYearLoading)) {
             (1..8).map { index ->
                 MediaItem(
                     id = -index,
@@ -4399,6 +4557,14 @@ internal fun ContentRow(
                 ),
                 color = Color.White
             )
+            if (isTopRatedByYearRow) {
+                TopRatedByYearSelector(
+                    selectedYear = topRatedByYearSelectedYear,
+                    currentYear = currentTopRatedYear,
+                    isFocused = isTopRatedYearSelectorFocused,
+                    onYearSelected = onTopRatedByYearSelected
+                )
+            }
         }
 
         // Cards row - clipped to hide previous items when scrolling
@@ -4409,6 +4575,11 @@ internal fun ContentRow(
                 .arvioManualBringIntoViewBoundary()
                 .then(clipModifier)
         ) {
+            if (isTopRatedByYearRow && itemsToRender.isEmpty() && !isTopRatedByYearLoading) {
+                TopRatedByYearEmptyMessage(
+                    modifier = Modifier.padding(start = startPadding)
+                )
+            }
             LazyRow(
                 state = rowState,
                 modifier = Modifier.testTag("home_rail_${category.id}")

@@ -923,6 +923,9 @@
     <string name="details_cd_season_options">Mostrar opciones de temporada</string>
     <string name="home_top10_movies_today">Top 10 Películas Hoy</string>
     <string name="home_top10_shows_today">Top 10 Series Hoy</string>
+    <string name="home_top_rated_by_year">Mejor valoradas por año</string>
+    <string name="home_top_rated_by_year_selector">Seleccionar año de estreno</string>
+    <string name="home_top_rated_by_year_empty">No se encontraron películas con al menos 10.000 votos de IMDb para este año.</string>
     <string name="home_favorite_tv">Canales favoritos de TV</string>
     <string name="home_sports">Deportes</string>
     <string name="home_popular_live_sports">Deportes en Vivo Populares</string>

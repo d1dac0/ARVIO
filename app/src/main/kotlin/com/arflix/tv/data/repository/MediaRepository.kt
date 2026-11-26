@@ -94,6 +94,40 @@ data class MediaSearchResults(
     val people: List<PersonMediaSearchResult>
 )
 
+internal data class ImdbTitleScore(
+    val rating: String,
+    val votes: Long
+)
+
+internal data class TopRatedMovieCandidate(
+    val item: MediaItem,
+    val score: ImdbTitleScore
+)
+
+internal const val TOP_RATED_BY_YEAR_MIN_IMDB_VOTES = 10_000L
+internal const val TOP_RATED_BY_YEAR_MIN_YEAR = 1890
+internal const val TOP_RATED_BY_YEAR_ITEM_LIMIT = 20
+
+internal fun rankTopRatedMoviesByYear(
+    candidates: List<TopRatedMovieCandidate>,
+    selectedYear: Int,
+    minImdbVotes: Long = TOP_RATED_BY_YEAR_MIN_IMDB_VOTES,
+    limit: Int = TOP_RATED_BY_YEAR_ITEM_LIMIT
+): List<MediaItem> = candidates
+    .asSequence()
+    .filter { it.item.year == selectedYear.toString() }
+    .filter { it.score.votes >= minImdbVotes }
+    .filter { it.score.rating.toDoubleOrNull()?.let { rating -> rating in 0.1..10.0 } == true }
+    .sortedWith(
+        compareByDescending<TopRatedMovieCandidate> { it.score.rating.toDoubleOrNull() ?: 0.0 }
+            .thenByDescending { it.score.votes }
+            .thenBy { it.item.title.lowercase(Locale.US) }
+            .thenBy { it.item.id }
+    )
+    .take(limit.coerceAtLeast(0))
+    .map { it.item.copy(imdbRating = it.score.rating) }
+    .toList()
+
 internal object HomeServerLibraryIdentity {
     fun stableNativeId(sourceRef: String, itemId: String): Int {
         return -("$sourceRef:$itemId".hashCode() and Int.MAX_VALUE).coerceAtLeast(1)
@@ -172,7 +206,7 @@ class MediaRepository @Inject constructor(
         watchProvidersCache.clear()
         imdbRatingCache.clear()
         imdbEpisodeRatingsCache.clear()
-        imdbRatingsByIdCache.clear()
+        imdbScoresByIdCache.clear()
         episodeImdbIdCache.clear()
         imdbIdCache.clear()
         addonImdbToTmdbCache.clear()
@@ -201,7 +235,7 @@ class MediaRepository @Inject constructor(
     private val seasonEpisodesCache = boundedCache<CacheEntry<List<Episode>>>(50)
     private val imdbRatingCache = boundedCache<CacheEntry<String>>(100)
     private val imdbEpisodeRatingsCache = boundedCache<CacheEntry<Map<Pair<Int, Int>, String>>>(50)
-    private val imdbRatingsByIdCache = boundedCache<CacheEntry<String>>(100)
+    private val imdbScoresByIdCache = boundedCache<CacheEntry<ImdbTitleScore>>(250)
     private val episodeImdbIdCache = boundedCache<CacheEntry<String>>(100)
     private val imdbIdCache = boundedCache<String>(100)
     private val addonImdbToTmdbCache = boundedCache<CacheEntry<Pair<MediaType, Int>?>>(100)
@@ -690,7 +724,10 @@ class MediaRepository @Inject constructor(
         }.awaitAll().filterNotNull().toMap()
     }
 
-    private suspend fun getAgregarrImdbRatings(imdbIds: List<String>): Map<String, String> = withContext(Dispatchers.IO) {
+    private suspend fun getAgregarrImdbRatings(imdbIds: List<String>): Map<String, String> =
+        getAgregarrImdbScores(imdbIds).mapValues { it.value.rating }
+
+    private suspend fun getAgregarrImdbScores(imdbIds: List<String>): Map<String, ImdbTitleScore> = withContext(Dispatchers.IO) {
         val uniqueIds = imdbIds
             .map { it.trim() }
             .filter { it.startsWith("tt", ignoreCase = true) }
@@ -698,10 +735,10 @@ class MediaRepository @Inject constructor(
         if (uniqueIds.isEmpty()) return@withContext emptyMap()
 
         val now = System.currentTimeMillis()
-        val result = mutableMapOf<String, String>()
+        val result = mutableMapOf<String, ImdbTitleScore>()
         val idsToFetch = uniqueIds.filter { imdbId ->
-            val cached = getFromCache(imdbRatingsByIdCache, imdbId)
-            if (!cached.isNullOrBlank()) {
+            val cached = getFromCache(imdbScoresByIdCache, imdbId)
+            if (cached != null) {
                 result[imdbId] = cached
                 false
             } else {
@@ -722,7 +759,7 @@ class MediaRepository @Inject constructor(
 
             val fetched = runCatching {
                 okHttpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@use emptyMap<String, String>()
+                    if (!response.isSuccessful) return@use emptyMap<String, ImdbTitleScore>()
                     val body = response.body?.string().orEmpty()
                     val array = JSONArray(body)
                     buildMap {
@@ -731,15 +768,18 @@ class MediaRepository @Inject constructor(
                             val imdbId = item.optString("imdbId").trim()
                             if (imdbId.isBlank() || item.isNull("rating")) continue
                             val rating = normalizeRating(item.optDouble("rating", 0.0).toString())
-                            if (!rating.isNullOrBlank()) put(imdbId, rating)
+                            val votes = item.optLong("votes", -1L)
+                            if (!rating.isNullOrBlank()) {
+                                put(imdbId, ImdbTitleScore(rating = rating, votes = votes))
+                            }
                         }
                     }
                 }
             }.getOrDefault(emptyMap())
 
-            fetched.forEach { (imdbId, rating) ->
-                imdbRatingsByIdCache[imdbId] = CacheEntry(rating, now)
-                result[imdbId] = rating
+            fetched.forEach { (imdbId, score) ->
+                imdbScoresByIdCache[imdbId] = CacheEntry(score, now)
+                result[imdbId] = score
             }
         }
         result
@@ -805,6 +845,8 @@ class MediaRepository @Inject constructor(
 
         /** Upper bound for a TMDB page used as a catalog row (discover pages are endless). */
         private const val TMDB_CATALOG_MAX_ITEMS = 200
+        private const val TOP_RATED_BY_YEAR_CANDIDATE_PAGES = 5
+        private const val TOP_RATED_BY_YEAR_EXTERNAL_ID_CONCURRENCY = 8
 
         /**
          * Build the full preinstalled catalog list for a fresh profile:
@@ -3144,6 +3186,74 @@ class MediaRepository @Inject constructor(
         val items = response.results.map { it.toMediaItem(MediaType.MOVIE) }
         cacheItems(items)
         return items
+    }
+
+    /**
+     * Builds the Home "Top Rated by Year" row from real IMDb data.
+     *
+     * TMDB supplies the selected-year candidate set and artwork. Its vote count is used only to
+     * fetch the strongest candidates first. Eligibility and final ordering come from the existing
+     * bulk IMDb provider, which returns both IMDb rating and IMDb vote count.
+     */
+    suspend fun getTopRatedMoviesByYear(
+        selectedYear: Int,
+        minImdbVotes: Long = TOP_RATED_BY_YEAR_MIN_IMDB_VOTES,
+        limit: Int = TOP_RATED_BY_YEAR_ITEM_LIMIT
+    ): List<MediaItem> = coroutineScope {
+        require(selectedYear >= TOP_RATED_BY_YEAR_MIN_YEAR) { "Unsupported release year: $selectedYear" }
+        if (limit <= 0) return@coroutineScope emptyList()
+
+        val firstPage = tmdbApi.discoverMovies(
+            apiKey = apiKey,
+            sortBy = "vote_count.desc",
+            year = selectedYear,
+            language = contentLanguage,
+            page = 1
+        )
+        val lastPage = minOf(firstPage.totalPages, TOP_RATED_BY_YEAR_CANDIDATE_PAGES)
+        val remainingPages = if (lastPage <= 1) {
+            emptyList()
+        } else {
+            (2..lastPage).map { page ->
+                async(Dispatchers.IO) {
+                    runCatching {
+                        tmdbApi.discoverMovies(
+                            apiKey = apiKey,
+                            sortBy = "vote_count.desc",
+                            year = selectedYear,
+                            language = contentLanguage,
+                            page = page
+                        ).results
+                    }.getOrDefault(emptyList())
+                }
+            }.awaitAll().flatten()
+        }
+        val movies = (firstPage.results + remainingPages)
+            .asSequence()
+            .filter { it.id > 0 && it.releaseDate?.take(4) == selectedYear.toString() }
+            .distinctBy { it.id }
+            .toList()
+
+        val externalIdSlots = Semaphore(TOP_RATED_BY_YEAR_EXTERNAL_ID_CONCURRENCY)
+        val candidatesWithIds = movies.map { movie ->
+            async(Dispatchers.IO) {
+                externalIdSlots.withPermit {
+                    val imdbId = resolveImdbId(MediaType.MOVIE, movie.id)
+                    if (imdbId.isNullOrBlank()) null else movie.toMediaItem(MediaType.MOVIE) to imdbId
+                }
+            }
+        }.awaitAll().filterNotNull()
+        val scoresByImdbId = getAgregarrImdbScores(candidatesWithIds.map { it.second })
+        val ranked = rankTopRatedMoviesByYear(
+            candidates = candidatesWithIds.mapNotNull { (item, imdbId) ->
+                scoresByImdbId[imdbId]?.let { score -> TopRatedMovieCandidate(item, score) }
+            },
+            selectedYear = selectedYear,
+            minImdbVotes = minImdbVotes,
+            limit = limit
+        )
+        cacheItems(ranked)
+        ranked
     }
 
     /**

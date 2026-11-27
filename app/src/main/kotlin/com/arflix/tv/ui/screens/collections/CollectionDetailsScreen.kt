@@ -283,16 +283,14 @@ class CollectionDetailsViewModel @Inject constructor(
         loadJob = collectionScope.launch { loadTabs(catalog, tab, generation, loadSecondary = !otherLoaded) }
     }
 
-    /** Apply IMDb-ranked release-year results to a built-in movie genre collection. */
+    /** Apply IMDb-ranked release-year results to a built-in movie collection page. */
     fun selectMovieYear(year: Int) {
         val state = _uiState.value
         val catalog = state.catalog ?: return
-        if (catalog.collectionGroup != CollectionGroupKind.GENRE || !state.supportsMovies ||
+        if (catalog.sourceType != CatalogSourceType.PREINSTALLED || !state.supportsMovies ||
             state.selectedMovieYear == year
         ) return
-        val genreId = catalog.collectionSources.firstOrNull {
-            sourceMatchesTab(it, CollectionTab.MOVIES)
-        }?.tmdbGenreId ?: return
+        val movieCatalog = catalogForTab(catalog, CollectionTab.MOVIES)
         val generation = restartCollectionScope()
         _uiState.value = state.copy(
             movieItems = emptyList(),
@@ -305,7 +303,7 @@ class CollectionDetailsViewModel @Inject constructor(
         )
         loadJob = collectionScope.launch {
             val items = collectionResultOrNull {
-                mediaRepository.getTopRatedMoviesByYear(selectedYear = year, genreId = genreId)
+                mediaRepository.getTopRatedMoviesForCollectionByYear(selectedYear = year, catalog = movieCatalog)
             }
             ensureCurrentLoad(generation)
             _uiState.value = _uiState.value.copy(
@@ -956,8 +954,8 @@ fun CollectionDetailsScreen(
             selectedGenreId = uiState.genreId(activeTab),
             onGenreSelected = { viewModel.selectGenre(activeTab, it) },
             selectedYear = uiState.selectedMovieYear,
-            showYearSelector = uiState.catalog?.collectionGroup == CollectionGroupKind.GENRE &&
-                activeTab == CollectionTab.MOVIES,
+            showYearSelector = uiState.catalog?.sourceType == CatalogSourceType.PREINSTALLED &&
+                uiState.supportsMovies && activeTab == CollectionTab.MOVIES,
             onYearSelected = viewModel::selectMovieYear,
             onItemClick = { item ->
                 if (SportsAddonCapabilities.isSportsEventStatus(item.status)) {

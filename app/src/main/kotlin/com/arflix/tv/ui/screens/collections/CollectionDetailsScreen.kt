@@ -87,6 +87,7 @@ import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
 import com.arflix.tv.ui.components.tvGenreNameRes
 import com.arflix.tv.ui.focus.arvioDpadFocusGroup
 import com.arflix.tv.ui.screens.home.stableHomeRowItemKeys
+import com.arflix.tv.ui.screens.home.TopRatedByYearSelector
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.appBackgroundDark
 import com.arflix.tv.ui.theme.TextPrimary
@@ -111,6 +112,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import javax.inject.Inject
+import java.util.Calendar
 
 enum class CollectionTab { MOVIES, SERIES }
 
@@ -145,7 +147,8 @@ data class CollectionDetailsUiState(
     /** Service pages can be narrowed to a genre per tab; null is every genre. */
     val genreFilterable: Boolean = false,
     val movieGenreId: Int? = null,
-    val seriesGenreId: Int? = null
+    val seriesGenreId: Int? = null,
+    val selectedMovieYear: Int? = null
 ) {
     fun genreId(tab: CollectionTab): Int? = if (tab == CollectionTab.MOVIES) movieGenreId else seriesGenreId
     val hasMovies: Boolean get() = movieItems.isNotEmpty()
@@ -278,6 +281,43 @@ class CollectionDetailsViewModel @Inject constructor(
             }
         }
         loadJob = collectionScope.launch { loadTabs(catalog, tab, generation, loadSecondary = !otherLoaded) }
+    }
+
+    /** Apply IMDb-ranked release-year results to a built-in movie genre collection. */
+    fun selectMovieYear(year: Int) {
+        val state = _uiState.value
+        val catalog = state.catalog ?: return
+        if (catalog.collectionGroup != CollectionGroupKind.GENRE || !state.supportsMovies ||
+            state.selectedMovieYear == year
+        ) return
+        val genreId = catalog.collectionSources.firstOrNull {
+            sourceMatchesTab(it, CollectionTab.MOVIES)
+        }?.tmdbGenreId ?: return
+        val generation = restartCollectionScope()
+        _uiState.value = state.copy(
+            movieItems = emptyList(),
+            isLoadingMovies = true,
+            isLoadingMoreMovies = false,
+            hasMoreMovies = false,
+            loadedMovieOffset = 0,
+            selectedMovieYear = year,
+            error = null
+        )
+        loadJob = collectionScope.launch {
+            val items = collectionResultOrNull {
+                mediaRepository.getTopRatedMoviesByYear(selectedYear = year, genreId = genreId)
+            }
+            ensureCurrentLoad(generation)
+            _uiState.value = _uiState.value.copy(
+                movieItems = mergeEnrichedItems(items.orEmpty()),
+                isLoadingMovies = false,
+                error = if (items == null) COLLECTION_LOAD_FAILED_ERROR else null
+            )
+            preloadLogos(items.orEmpty().take(2))
+            if (_uiState.value.supportsSeries && _uiState.value.isLoadingSeries) {
+                loadInitialTab(catalog, CollectionTab.SERIES, generation)
+            }
+        }
     }
 
     /** Cancels every in-flight page, logo and detail request of the previous load. */
@@ -837,6 +877,13 @@ fun CollectionDetailsScreen(
 
     LaunchedEffect(selectedTab) { pendingFocusIndex = -1 }
 
+    LaunchedEffect(uiState.selectedMovieYear) {
+        if (uiState.selectedMovieYear != null) {
+            lastFocusedMovieIndex = -1
+            moviesGridState.scrollToItem(0)
+        }
+    }
+
     // Fires on fresh composition (first entry or recreation after back navigation)
     LaunchedEffect(Unit) { requestTabFocus() }
 
@@ -908,6 +955,10 @@ fun CollectionDetailsScreen(
             genreIds = if (uiState.genreFilterable) ServiceGenreFilter.genreIds(activeTab) else emptyList(),
             selectedGenreId = uiState.genreId(activeTab),
             onGenreSelected = { viewModel.selectGenre(activeTab, it) },
+            selectedYear = uiState.selectedMovieYear,
+            showYearSelector = uiState.catalog?.collectionGroup == CollectionGroupKind.GENRE &&
+                activeTab == CollectionTab.MOVIES,
+            onYearSelected = viewModel::selectMovieYear,
             onItemClick = { item ->
                 if (SportsAddonCapabilities.isSportsEventStatus(item.status)) {
                     viewModel.openSportsCollectionItem(
@@ -941,7 +992,11 @@ fun CollectionDetailsScreen(
             onNearEnd = { viewModel.loadMoreIfNeeded(activeTab) },
             isLoading = isTabLoading,
             isLoadingMore = isTabLoadingMore,
-            emptyMessage = when (val error = uiState.error) {
+            emptyMessage = if (activeTab == CollectionTab.MOVIES && uiState.selectedMovieYear != null &&
+                uiState.error == null
+            ) {
+                stringResource(R.string.home_top_rated_by_year_empty)
+            } else when (val error = uiState.error) {
                 null -> stringResource(R.string.collection_empty)
                 COLLECTION_LOAD_FAILED_ERROR -> stringResource(R.string.collection_failed_load)
                 COLLECTION_NOT_FOUND_ERROR -> stringResource(R.string.collection_not_found)
@@ -973,6 +1028,9 @@ private fun CollectionTabBar(
     genreIds: List<Int>,
     selectedGenreId: Int?,
     onGenreSelected: (Int?) -> Unit,
+    selectedYear: Int?,
+    showYearSelector: Boolean,
+    onYearSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val showMovies = hasMovies || !hasSeries
@@ -1025,6 +1083,25 @@ private fun CollectionTabBar(
             focusRequester = genreRowFocusRequester,
             onGenreSelected = onGenreSelected
         )
+    }
+    if (showYearSelector) {
+        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            androidx.tv.material3.Text(
+                text = stringResource(R.string.collection_release_year),
+                style = ArflixTypography.sectionTitle.copy(fontSize = 14.sp),
+                color = TextPrimary
+            )
+            TopRatedByYearSelector(
+                selectedYear = selectedYear ?: currentYear,
+                currentYear = currentYear,
+                isFocused = false,
+                onYearSelected = onYearSelected
+            )
+        }
     }
     }
 }
@@ -1159,7 +1236,10 @@ internal fun CollectionItemsGrid(
     onVisiblePositionChanged: (Int, Int) -> Unit = { _, _ -> },
     genreIds: List<Int> = emptyList(),
     selectedGenreId: Int? = null,
-    onGenreSelected: (Int?) -> Unit = {}
+    onGenreSelected: (Int?) -> Unit = {},
+    selectedYear: Int? = null,
+    showYearSelector: Boolean = false,
+    onYearSelected: (Int) -> Unit = {}
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val isMobile = LocalDeviceType.current.isTouchDevice()
@@ -1278,6 +1358,9 @@ internal fun CollectionItemsGrid(
                 genreIds = genreIds,
                 selectedGenreId = selectedGenreId,
                 onGenreSelected = onGenreSelected,
+                selectedYear = selectedYear,
+                showYearSelector = showYearSelector,
+                onYearSelected = onYearSelected,
                 modifier = Modifier.onFocusChanged { state ->
                     if (!isMobile && state.hasFocus) {
                         focusedRow = -1
@@ -1368,6 +1451,7 @@ internal fun CollectionItemsGrid(
                         if (items.size > 10 && index >= items.size - 2) onNearEnd()
                     },
                     onClick = { onItemClick(item) },
+                    showImdbRating = showYearSelector && selectedYear != null,
                     modifier = (if (isMobile) Modifier.fillMaxWidth() else Modifier)
                         .focusRequester(itemFocusRequester).testTag("collection_item_$index")
                 )

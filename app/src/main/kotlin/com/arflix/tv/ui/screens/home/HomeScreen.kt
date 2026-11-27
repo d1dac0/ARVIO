@@ -2887,7 +2887,7 @@ internal fun HomeInputLayer(
     var selectDownAtMs by remember { mutableLongStateOf(0L) }
     var rootHasFocus by remember { mutableStateOf(false) }
     var topRatedYearSelectorFocused by rememberSaveable { mutableStateOf(false) }
-    var topRatedYearCandidate by rememberSaveable { mutableIntStateOf(topRatedByYearSelectedYear) }
+    var topRatedYearDropdownExpanded by rememberSaveable { mutableStateOf(false) }
     val currentTopRatedYear = remember { java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) }
     val backPress = remember { HomeBackPress() }
     val backScope = rememberCoroutineScope()
@@ -2899,6 +2899,7 @@ internal fun HomeInputLayer(
         focusState.returnToStart(categories, SystemClock.elapsedRealtime(), netflix?.billboardItem != null)
     }
     val selectTopRatedYearAndReset: (Int) -> Unit = { year ->
+        topRatedYearDropdownExpanded = false
         focusState.resetRowToStart(
             categoryId = TOP_RATED_BY_YEAR_CATEGORY_ID,
             categories = categories,
@@ -2906,10 +2907,6 @@ internal fun HomeInputLayer(
         )
         onTopRatedByYearSelected(year)
     }
-    LaunchedEffect(topRatedByYearSelectedYear, topRatedYearSelectorFocused) {
-        if (!topRatedYearSelectorFocused) topRatedYearCandidate = topRatedByYearSelectedYear
-    }
-
     fun shortBack() {
         selectPressedInHome = false
         selectDownAtMs = 0L
@@ -3006,6 +3003,13 @@ internal fun HomeInputLayer(
             if (isContextMenuOpen || homeView.findFocus() is android.webkit.WebView) {
                 return@onPreviewKeyEvent false
             }
+            if (topRatedYearDropdownExpanded) {
+                if (event.key == Key.Back && event.type == KeyEventType.KeyDown) {
+                    topRatedYearDropdownExpanded = false
+                    return@onPreviewKeyEvent true
+                }
+                return@onPreviewKeyEvent false
+            }
             if (trailerIsPlaying && event.type == KeyEventType.KeyDown &&
                 (isArvioDpadNavigationKey(event.key) || event.key == Key.Enter || event.key == Key.DirectionCenter || event.key == Key.Back)
             ) {
@@ -3094,7 +3098,7 @@ internal fun HomeInputLayer(
             val focusedCategory = categories.getOrNull(focusState.currentRowIndex)
             if (topRatedYearSelectorFocused && focusedCategory?.id != TOP_RATED_BY_YEAR_CATEGORY_ID) {
                 topRatedYearSelectorFocused = false
-                topRatedYearCandidate = topRatedByYearSelectedYear
+                topRatedYearDropdownExpanded = false
             }
             if (
                 !topRatedYearSelectorFocused &&
@@ -3105,7 +3109,6 @@ internal fun HomeInputLayer(
                 event.key == Key.DirectionUp
             ) {
                 topRatedYearSelectorFocused = true
-                topRatedYearCandidate = topRatedByYearSelectedYear
                 focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                 return@onPreviewKeyEvent true
             }
@@ -3118,18 +3121,12 @@ internal fun HomeInputLayer(
                 if (event.type == KeyEventType.KeyDown) {
                     when (event.key) {
                         Key.DirectionLeft, Key.DirectionRight -> {
-                            val increment = if ((event.key == Key.DirectionRight) xor isRtl) 1 else -1
-                            topRatedYearCandidate = moveTopRatedYearCandidate(
-                                candidateYear = topRatedYearCandidate,
-                                increment = increment,
-                                currentYear = currentTopRatedYear
-                            )
+                            topRatedYearDropdownExpanded = true
                             focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             return@onPreviewKeyEvent true
                         }
                         Key.DirectionDown -> {
                             topRatedYearSelectorFocused = false
-                            topRatedYearCandidate = topRatedByYearSelectedYear
                             if (focusedCategory?.items.isNullOrEmpty() && focusState.currentRowIndex < categories.lastIndex) {
                                 focusState.currentRowIndex++
                                 focusState.currentItemIndex = 0
@@ -3141,7 +3138,6 @@ internal fun HomeInputLayer(
                         }
                         Key.DirectionUp -> {
                             topRatedYearSelectorFocused = false
-                            topRatedYearCandidate = topRatedByYearSelectedYear
                             if (focusState.currentRowIndex > 0) {
                                 focusState.currentRowIndex--
                                 val targetCategory = categories.getOrNull(focusState.currentRowIndex)
@@ -3161,7 +3157,7 @@ internal fun HomeInputLayer(
                             return@onPreviewKeyEvent true
                         }
                         Key.Enter, Key.DirectionCenter -> {
-                            selectTopRatedYearAndReset(topRatedYearCandidate)
+                            topRatedYearDropdownExpanded = true
                             return@onPreviewKeyEvent true
                         }
                     }
@@ -3230,7 +3226,6 @@ internal fun HomeInputLayer(
                             true
                         } else if (categories.getOrNull(focusState.currentRowIndex)?.id == TOP_RATED_BY_YEAR_CATEGORY_ID) {
                             topRatedYearSelectorFocused = true
-                            topRatedYearCandidate = topRatedByYearSelectedYear
                             focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             true
                         } else if (focusState.currentRowIndex > 0) {
@@ -3424,14 +3419,12 @@ internal fun HomeInputLayer(
             usePosterCards = usePosterCards,
             isMobile = isMobile,
             categoryHasMoreMap = categoryHasMoreMap,
-            topRatedByYearSelectedYear = if (topRatedYearSelectorFocused) {
-                topRatedYearCandidate
-            } else {
-                topRatedByYearSelectedYear
-            },
+            topRatedByYearSelectedYear = topRatedByYearSelectedYear,
             currentTopRatedYear = currentTopRatedYear,
             isTopRatedByYearLoading = isTopRatedByYearLoading,
             isTopRatedYearSelectorFocused = topRatedYearSelectorFocused,
+            topRatedYearDropdownExpanded = topRatedYearDropdownExpanded,
+            onTopRatedYearDropdownExpandedChange = { topRatedYearDropdownExpanded = it },
             onTopRatedByYearSelected = selectTopRatedYearAndReset,
             smoothScrolling = smoothScrolling,
             isSlowLoading = isSlowLoading,
@@ -3509,6 +3502,8 @@ private fun HomeRowsLayer(
     currentTopRatedYear: Int,
     isTopRatedByYearLoading: Boolean,
     isTopRatedYearSelectorFocused: Boolean,
+    topRatedYearDropdownExpanded: Boolean,
+    onTopRatedYearDropdownExpandedChange: (Boolean) -> Unit,
     onTopRatedByYearSelected: (Int) -> Unit,
     smoothScrolling: Boolean = true,
     isSlowLoading: Boolean = false,
@@ -3547,6 +3542,8 @@ private fun HomeRowsLayer(
             currentTopRatedYear = currentTopRatedYear,
             isTopRatedByYearLoading = isTopRatedByYearLoading,
             isTopRatedYearSelectorFocused = isTopRatedYearSelectorFocused,
+            topRatedYearDropdownExpanded = topRatedYearDropdownExpanded,
+            onTopRatedYearDropdownExpandedChange = onTopRatedYearDropdownExpandedChange,
             onTopRatedByYearSelected = onTopRatedByYearSelected,
             smoothScrolling = smoothScrolling,
             onLoadMoreCategory = onLoadMoreCategory,
@@ -3634,6 +3631,8 @@ private fun HomeRowsLayer(
             currentTopRatedYear = currentTopRatedYear,
             isTopRatedByYearLoading = isTopRatedByYearLoading,
             isTopRatedYearSelectorFocused = isTopRatedYearSelectorFocused,
+            topRatedYearDropdownExpanded = topRatedYearDropdownExpanded,
+            onTopRatedYearDropdownExpandedChange = onTopRatedYearDropdownExpandedChange,
             onTopRatedByYearSelected = onTopRatedByYearSelected,
             smoothScrolling = smoothScrolling,
             onLoadMoreCategory = onLoadMoreCategory,
@@ -3871,7 +3870,7 @@ private fun MobileHomeRowsLayer(
                                         logoImageUrl = cardLogoUrl,
                                         showProgress = false,
                                         showTitle = !item.collectionHideTitle,
-                                        showImdbRating = category.id == TOP_RATED_BY_YEAR_CATEGORY_ID,
+                                        showImdbRating = false,
                                         isFocusedOverride = false,
                                         enableSystemFocus = false,
                                         onFocused = {},
@@ -3897,7 +3896,7 @@ private fun MobileHomeRowsLayer(
                                     logoImageUrl = cardLogoUrl,
                                     showProgress = isContinueWatching,
                                     showTitle = !item.collectionHideTitle,
-                                    showImdbRating = category.id == TOP_RATED_BY_YEAR_CATEGORY_ID,
+                                    showImdbRating = false,
                                     isFocusedOverride = false,
                                     enableSystemFocus = false,
                                     onFocused = {},
@@ -3972,6 +3971,8 @@ private fun TvHomeRowsLayer(
     currentTopRatedYear: Int,
     isTopRatedByYearLoading: Boolean,
     isTopRatedYearSelectorFocused: Boolean,
+    topRatedYearDropdownExpanded: Boolean,
+    onTopRatedYearDropdownExpandedChange: (Boolean) -> Unit,
     onTopRatedByYearSelected: (Int) -> Unit,
     smoothScrolling: Boolean = true,
     onLoadMoreCategory: (String) -> Unit = {},
@@ -4153,6 +4154,8 @@ private fun TvHomeRowsLayer(
                             currentTopRatedYear = currentTopRatedYear,
                             isTopRatedByYearLoading = isTopRatedByYearLoading,
                             isTopRatedYearSelectorFocused = rowIsFocused && isTopRatedYearSelectorFocused,
+                            topRatedYearDropdownExpanded = topRatedYearDropdownExpanded,
+                            onTopRatedYearDropdownExpandedChange = onTopRatedYearDropdownExpandedChange,
                             onTopRatedByYearSelected = onTopRatedByYearSelected,
                             smoothScrolling = smoothScrolling,
                             onLoadMore = onRowLoadMore,
@@ -4391,6 +4394,8 @@ internal fun ContentRow(
     currentTopRatedYear: Int = topRatedByYearSelectedYear,
     isTopRatedByYearLoading: Boolean = false,
     isTopRatedYearSelectorFocused: Boolean = false,
+    topRatedYearDropdownExpanded: Boolean? = null,
+    onTopRatedYearDropdownExpandedChange: ((Boolean) -> Unit)? = null,
     onTopRatedByYearSelected: (Int) -> Unit = {},
     smoothScrolling: Boolean = true,
     onLoadMore: () -> Unit = {},
@@ -4604,7 +4609,9 @@ internal fun ContentRow(
                     selectedYear = topRatedByYearSelectedYear,
                     currentYear = currentTopRatedYear,
                     isFocused = isTopRatedYearSelectorFocused,
-                    onYearSelected = onTopRatedByYearSelected
+                    onYearSelected = onTopRatedByYearSelected,
+                    expanded = topRatedYearDropdownExpanded,
+                    onExpandedChange = onTopRatedYearDropdownExpandedChange
                 )
             }
         }
@@ -4706,7 +4713,7 @@ internal fun ContentRow(
                                 raiseOnFocus = !focusedWhileFastScrolling,
                                 showProgress = false,
                                 showTitle = isCollectionRow && !item.collectionHideTitle,
-                                showImdbRating = isTopRatedByYearRow,
+                                showImdbRating = false,
                                 isFocusedOverride = itemIsFocused && !railFocusOverlayActive,
                                 focusedScale = 1f,
                                 enableFocusedImageSwap = !isCollectionRow && !focusedWhileFastScrolling,
@@ -4762,7 +4769,7 @@ internal fun ContentRow(
                             raiseOnFocus = !focusedWhileFastScrolling,
                             showProgress = isContinueWatching,
                             showTitle = isCollectionRow && !item.collectionHideTitle,
-                            showImdbRating = isTopRatedByYearRow,
+                            showImdbRating = false,
                             isFocusedOverride = itemIsFocused && !railFocusOverlayActive,
                             focusedScale = 1f,
                             enableFocusedImageSwap = !isCollectionRow && !focusedWhileFastScrolling,

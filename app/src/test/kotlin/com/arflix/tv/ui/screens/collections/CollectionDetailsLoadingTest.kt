@@ -325,7 +325,7 @@ class CollectionDetailsLoadingTest {
             )
         )
         coEvery { catalogs.getCatalogs() } returns listOf(genre)
-        coEvery { media.getTopRatedMoviesByYear(2024, 28, any(), any()) } returns
+        coEvery { media.getTopRatedMoviesForCollectionByYear(2024, any(), any(), any()) } returns
             listOf(item(9).copy(year = "2024", imdbRating = "8.7"))
 
         model.load("action")
@@ -336,7 +336,7 @@ class CollectionDetailsLoadingTest {
         assertEquals(2024, model.uiState.value.selectedMovieYear)
         assertEquals(listOf(9), model.uiState.value.movieItems.map { it.id })
         assertEquals("8.7", model.uiState.value.movieItems.single().imdbRating)
-        coVerify(exactly = 1) { media.getTopRatedMoviesByYear(2024, 28, any(), any()) }
+        coVerify(exactly = 1) { media.getTopRatedMoviesForCollectionByYear(2024, any(), any(), any()) }
     }
 
     @Test fun cancellationIsNotPublishedAsAnEmptyPageOrLoadError() = runTest {

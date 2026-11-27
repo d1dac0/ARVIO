@@ -386,6 +386,7 @@ class MediaRepository @Inject constructor(
         // other fixed groups keep the small cap.
         val unlimitedGroup = catalog.collectionGroup == CollectionGroupKind.SERVICE ||
             catalog.collectionGroup == CollectionGroupKind.GENRE ||
+            catalog.sourceType == CatalogSourceType.PREINSTALLED ||
             catalog.collectionRailKey != null
 
         val budgetCeilings: List<Int?> = catalog.collectionSources.map { source ->
@@ -3243,6 +3244,105 @@ class MediaRepository @Inject constructor(
                 externalIdSlots.withPermit {
                     val imdbId = resolveImdbId(MediaType.MOVIE, movie.id)
                     if (imdbId.isNullOrBlank()) null else movie.toMediaItem(MediaType.MOVIE) to imdbId
+                }
+            }
+        }.awaitAll().filterNotNull()
+        val scoresByImdbId = getAgregarrImdbScores(candidatesWithIds.map { it.second })
+        val ranked = rankTopRatedMoviesByYear(
+            candidates = candidatesWithIds.mapNotNull { (item, imdbId) ->
+                scoresByImdbId[imdbId]?.let { score -> TopRatedMovieCandidate(item, score) }
+            },
+            selectedYear = selectedYear,
+            minImdbVotes = minImdbVotes,
+            limit = limit
+        )
+        cacheItems(ranked)
+        ranked
+    }
+
+    /**
+     * Ranks movies for a built-in collection while preserving its TMDB source filters.
+     * Discover sources receive an exact primary release year at the API; fixed lists and
+     * franchises are narrowed by their release metadata after resolving their movie refs.
+     */
+    suspend fun getTopRatedMoviesForCollectionByYear(
+        selectedYear: Int,
+        catalog: CatalogConfig,
+        minImdbVotes: Long = TOP_RATED_BY_YEAR_MIN_IMDB_VOTES,
+        limit: Int = TOP_RATED_BY_YEAR_ITEM_LIMIT
+    ): List<MediaItem> = coroutineScope {
+        require(selectedYear >= TOP_RATED_BY_YEAR_MIN_YEAR) { "Unsupported release year: $selectedYear" }
+        if (limit <= 0) return@coroutineScope emptyList()
+
+        val yearSources = catalog.collectionSources.map { source ->
+            val params = source.discoverParams.orEmpty()
+            when (source.kind) {
+                CollectionSourceKind.TMDB_DISCOVER -> source.copy(
+                    discoverParams = params + ("primary_release_year" to selectedYear.toString())
+                )
+                CollectionSourceKind.TMDB_GENRE -> source.copy(
+                    kind = CollectionSourceKind.TMDB_DISCOVER,
+                    mediaType = "movie",
+                    discoverParams = mapOf(
+                        "include_adult" to "false",
+                        "with_genres" to source.tmdbGenreId?.toString().orEmpty(),
+                        "primary_release_year" to selectedYear.toString()
+                    ).filterValues(String::isNotBlank)
+                )
+                CollectionSourceKind.TMDB_WATCH_PROVIDER -> source.copy(
+                    kind = CollectionSourceKind.TMDB_DISCOVER,
+                    mediaType = "movie",
+                    discoverParams = buildMap {
+                        put("include_adult", "false")
+                        source.tmdbWatchProviderId?.let { put("with_watch_providers", it.toString()) }
+                        put("watch_region", source.watchRegion?.takeIf(String::isNotBlank) ?: "US")
+                        source.tmdbGenreId?.let { put("with_genres", it.toString()) }
+                        put("primary_release_year", selectedYear.toString())
+                    }
+                )
+                CollectionSourceKind.TMDB_KEYWORD -> source.copy(
+                    kind = CollectionSourceKind.TMDB_DISCOVER,
+                    mediaType = "movie",
+                    discoverParams = buildMap {
+                        put("include_adult", "false")
+                        source.tmdbKeywordId?.let { put("with_keywords", it.toString()) }
+                        put("primary_release_year", selectedYear.toString())
+                    }
+                )
+                CollectionSourceKind.TMDB_PERSON -> source.copy(
+                    kind = CollectionSourceKind.TMDB_DISCOVER,
+                    mediaType = "movie",
+                    discoverParams = buildMap {
+                        put("include_adult", "false")
+                        val personFilter = if (source.tmdbCreditRole == null || source.tmdbCreditRole == "Director") {
+                            "with_crew"
+                        } else "with_people"
+                        source.tmdbPersonId?.let { put(personFilter, it.toString()) }
+                        put("primary_release_year", selectedYear.toString())
+                    }
+                )
+                else -> source
+            }
+        }
+        val yearCatalog = catalog.copy(collectionSources = yearSources)
+        val candidateCount = TOP_RATED_BY_YEAR_CANDIDATE_PAGES * 20
+        val candidates = loadCollectionCatalogPage(
+            catalog = yearCatalog,
+            offset = 0,
+            limit = candidateCount,
+            mediaType = MediaType.MOVIE
+        ).items.asSequence()
+            .filter { it.mediaType == MediaType.MOVIE && it.year == selectedYear.toString() }
+            .distinctBy { it.id }
+            .toList()
+
+        val idSlots = Semaphore(TOP_RATED_BY_YEAR_EXTERNAL_ID_CONCURRENCY)
+        val candidatesWithIds = candidates.map { item ->
+            async(Dispatchers.IO) {
+                idSlots.withPermit {
+                    resolveImdbId(MediaType.MOVIE, item.id)
+                        ?.takeIf(String::isNotBlank)
+                        ?.let { item to it }
                 }
             }
         }.awaitAll().filterNotNull()

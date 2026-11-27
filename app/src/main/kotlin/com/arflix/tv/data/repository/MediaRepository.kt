@@ -1420,8 +1420,37 @@ class MediaRepository @Inject constructor(
         offset: Int,
         limit: Int,
         mediaType: MediaType? = null,
-        onItemsAvailable: ((List<MediaItem>) -> Unit)? = null,
-        allowLargeSourceWindow: Boolean = false
+        onItemsAvailable: ((List<MediaItem>) -> Unit)? = null
+    ): CategoryPageResult = loadCollectionCatalogPageInternal(
+        catalog = catalog,
+        offset = offset,
+        limit = limit,
+        mediaType = mediaType,
+        onItemsAvailable = onItemsAvailable,
+        allowLargeSourceWindow = false
+    )
+
+    private suspend fun loadCollectionCatalogPageWithLargeSourceWindow(
+        catalog: CatalogConfig,
+        offset: Int,
+        limit: Int,
+        mediaType: MediaType
+    ): CategoryPageResult = loadCollectionCatalogPageInternal(
+        catalog = catalog,
+        offset = offset,
+        limit = limit,
+        mediaType = mediaType,
+        onItemsAvailable = null,
+        allowLargeSourceWindow = true
+    )
+
+    private suspend fun loadCollectionCatalogPageInternal(
+        catalog: CatalogConfig,
+        offset: Int,
+        limit: Int,
+        mediaType: MediaType?,
+        onItemsAvailable: ((List<MediaItem>) -> Unit)?,
+        allowLargeSourceWindow: Boolean
     ): CategoryPageResult = coroutineScope {
         if (catalog.collectionSources.isEmpty() || limit <= 0 || offset < 0) {
             return@coroutineScope CategoryPageResult(emptyList(), hasMore = false)
@@ -3331,12 +3360,11 @@ class MediaRepository @Inject constructor(
         }
         val yearCatalog = catalog.copy(collectionSources = yearSources)
         val candidateCount = TOP_RATED_BY_YEAR_CANDIDATE_PAGES * 20
-        val candidates = loadCollectionCatalogPage(
+        val candidates = loadCollectionCatalogPageWithLargeSourceWindow(
             catalog = yearCatalog,
             offset = 0,
             limit = candidateCount,
-            mediaType = MediaType.MOVIE,
-            allowLargeSourceWindow = true
+            mediaType = MediaType.MOVIE
         ).items.asSequence()
             .filter { it.mediaType == MediaType.MOVIE && it.year == selectedYear.toString() }
             .distinctBy { it.id }

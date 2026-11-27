@@ -7,6 +7,7 @@ import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CatalogSourceType
 import com.arflix.tv.data.model.CollectionSourceConfig
 import com.arflix.tv.data.model.CollectionSourceKind
+import com.arflix.tv.data.model.CollectionGroupKind
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.repository.CatalogRepository
@@ -310,6 +311,32 @@ class CollectionDetailsLoadingTest {
         model.loadMoreIfNeeded(CollectionTab.MOVIES)
         advanceUntilIdle()
         assertEquals(listOf(1, 4), model.uiState.value.movieItems.map { it.id })
+    }
+
+    @Test fun selectingYearOnGenreLoadsImdbRankedMoviesForThatGenre() = runTest {
+        val genre = catalog("action").copy(
+            collectionGroup = CollectionGroupKind.GENRE,
+            collectionSources = listOf(
+                CollectionSourceConfig(
+                    CollectionSourceKind.TMDB_GENRE,
+                    mediaType = "movie",
+                    tmdbGenreId = 28
+                )
+            )
+        )
+        coEvery { catalogs.getCatalogs() } returns listOf(genre)
+        coEvery { media.getTopRatedMoviesByYear(2024, 28, any(), any()) } returns
+            listOf(item(9).copy(year = "2024", imdbRating = "8.7"))
+
+        model.load("action")
+        advanceUntilIdle()
+        model.selectMovieYear(2024)
+        advanceUntilIdle()
+
+        assertEquals(2024, model.uiState.value.selectedMovieYear)
+        assertEquals(listOf(9), model.uiState.value.movieItems.map { it.id })
+        assertEquals("8.7", model.uiState.value.movieItems.single().imdbRating)
+        coVerify(exactly = 1) { media.getTopRatedMoviesByYear(2024, 28, any(), any()) }
     }
 
     @Test fun cancellationIsNotPublishedAsAnEmptyPageOrLoadError() = runTest {

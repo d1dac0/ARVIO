@@ -3197,6 +3197,7 @@ class MediaRepository @Inject constructor(
      */
     suspend fun getTopRatedMoviesByYear(
         selectedYear: Int,
+        genreId: Int? = null,
         minImdbVotes: Long = TOP_RATED_BY_YEAR_MIN_IMDB_VOTES,
         limit: Int = TOP_RATED_BY_YEAR_ITEM_LIMIT
     ): List<MediaItem> = coroutineScope {
@@ -3206,6 +3207,7 @@ class MediaRepository @Inject constructor(
         val firstPage = tmdbApi.discoverMovies(
             apiKey = apiKey,
             sortBy = "vote_count.desc",
+            genres = genreId?.toString(),
             year = selectedYear,
             language = contentLanguage,
             page = 1
@@ -3220,6 +3222,7 @@ class MediaRepository @Inject constructor(
                         tmdbApi.discoverMovies(
                             apiKey = apiKey,
                             sortBy = "vote_count.desc",
+                            genres = genreId?.toString(),
                             year = selectedYear,
                             language = contentLanguage,
                             page = page

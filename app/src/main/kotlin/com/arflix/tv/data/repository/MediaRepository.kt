@@ -366,14 +366,15 @@ class MediaRepository @Inject constructor(
     private suspend fun resolveCollectionCatalogRefs(
         catalog: CatalogConfig,
         requiredCount: Int,
-        mediaType: MediaType? = null
+        mediaType: MediaType? = null,
+        allowLargeSourceWindow: Boolean = false
     ): CollectionRefs {
         // Each source applies the tab filter before its limit. Keep tab caches separate so a
         // movie-only window cannot be mistaken for the complete contents of a mixed list.
         fun countOf(refs: List<Pair<MediaType, Int>>): Int =
             if (mediaType == null) refs.size else refs.count { it.first == mediaType }
 
-        val cacheKey = "${collectionRefsCacheKey(catalog)}|${catalog.collectionGroup}|${catalog.collectionRailKey}|${mediaType?.name ?: "ALL"}"
+        val cacheKey = "${collectionRefsCacheKey(catalog)}|${catalog.collectionGroup}|${catalog.collectionRailKey}|${mediaType?.name ?: "ALL"}|wide=$allowLargeSourceWindow"
         val cached = getCollectionRefsCache(cacheKey)
         if (cached != null && (cached.complete || countOf(cached.refs) >= requiredCount.coerceAtLeast(1))) {
             return cached
@@ -384,10 +385,12 @@ class MediaRepository @Inject constructor(
         // so let the per-source budget grow with the user's scroll position
         // instead of clamping at the default 72/96/120 ceiling. FRANCHISE and
         // other fixed groups keep the small cap.
+        // A one-off IMDb ranking scan can opt into a wider candidate window without changing
+        // the regular browsing ceiling for preinstalled collections.
         val unlimitedGroup = catalog.collectionGroup == CollectionGroupKind.SERVICE ||
             catalog.collectionGroup == CollectionGroupKind.GENRE ||
-            catalog.sourceType == CatalogSourceType.PREINSTALLED ||
-            catalog.collectionRailKey != null
+            catalog.collectionRailKey != null ||
+            allowLargeSourceWindow
 
         val budgetCeilings: List<Int?> = catalog.collectionSources.map { source ->
             if (unlimitedGroup) {
@@ -1417,7 +1420,8 @@ class MediaRepository @Inject constructor(
         offset: Int,
         limit: Int,
         mediaType: MediaType? = null,
-        onItemsAvailable: ((List<MediaItem>) -> Unit)? = null
+        onItemsAvailable: ((List<MediaItem>) -> Unit)? = null,
+        allowLargeSourceWindow: Boolean = false
     ): CategoryPageResult = coroutineScope {
         if (catalog.collectionSources.isEmpty() || limit <= 0 || offset < 0) {
             return@coroutineScope CategoryPageResult(emptyList(), hasMore = false)
@@ -1427,7 +1431,8 @@ class MediaRepository @Inject constructor(
         val resolved = resolveCollectionCatalogRefs(
             catalog = catalog,
             requiredCount = (offset + limit).coerceAtLeast(limit),
-            mediaType = mediaType
+            mediaType = mediaType,
+            allowLargeSourceWindow = allowLargeSourceWindow
         )
         if (requestLanguage != contentLanguage) throw CancellationException("Collection language changed")
         val refs = if (mediaType == null) resolved.refs else resolved.refs.filter { it.first == mediaType }
@@ -3330,7 +3335,8 @@ class MediaRepository @Inject constructor(
             catalog = yearCatalog,
             offset = 0,
             limit = candidateCount,
-            mediaType = MediaType.MOVIE
+            mediaType = MediaType.MOVIE,
+            allowLargeSourceWindow = true
         ).items.asSequence()
             .filter { it.mediaType == MediaType.MOVIE && it.year == selectedYear.toString() }
             .distinctBy { it.id }

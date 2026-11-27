@@ -106,7 +106,7 @@ internal data class TopRatedMovieCandidate(
 
 internal const val TOP_RATED_BY_YEAR_MIN_IMDB_VOTES = 10_000L
 internal const val TOP_RATED_BY_YEAR_MIN_YEAR = 1890
-internal const val TOP_RATED_BY_YEAR_ITEM_LIMIT = 20
+internal const val TOP_RATED_BY_YEAR_ITEM_LIMIT = 40
 
 internal fun rankTopRatedMoviesByYear(
     candidates: List<TopRatedMovieCandidate>,
@@ -845,7 +845,7 @@ class MediaRepository @Inject constructor(
 
         /** Upper bound for a TMDB page used as a catalog row (discover pages are endless). */
         private const val TMDB_CATALOG_MAX_ITEMS = 200
-        private const val TOP_RATED_BY_YEAR_CANDIDATE_PAGES = 5
+        private const val TOP_RATED_BY_YEAR_CANDIDATE_PAGES = 10
         private const val TOP_RATED_BY_YEAR_EXTERNAL_ID_CONCURRENCY = 8
 
         /**

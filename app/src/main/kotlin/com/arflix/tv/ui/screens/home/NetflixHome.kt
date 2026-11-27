@@ -450,7 +450,7 @@ internal fun NetflixTvHomeRowsLayer(
                     val onRowViewAll = remember(category.id) { { onViewAllCategory(category.id) } }
                     val rowUsePosterCards =
                         rememberCatalogueRowLayoutMode("home:${category.id}") == CardLayoutMode.POSTER
-                    if (category.id == TOP_RATED_BY_YEAR_CATEGORY_ID || netflixRowIsSpecial(category, isSpecialItem)) {
+                    if (netflixRowIsSpecial(category, isSpecialItem)) {
                         // Channel, service and sports tiles have no backdrop/overview to
                         // expand into: they keep the classic rail.
                         Box(
@@ -497,6 +497,11 @@ internal fun NetflixTvHomeRowsLayer(
                             startPadding = contentStartPadding,
                             categoryHasMore = rowHasMore,
                             showViewAll = viewAllIndex >= 0,
+                            topRatedByYearSelectedYear = topRatedByYearSelectedYear,
+                            currentTopRatedYear = currentTopRatedYear,
+                            isTopRatedByYearLoading = isTopRatedByYearLoading,
+                            isTopRatedYearSelectorFocused = rowIsFocused && isTopRatedYearSelectorFocused,
+                            onTopRatedByYearSelected = onTopRatedByYearSelected,
                             featuredItem = netflix.featuredItem,
                             featuredOverview = netflix.featuredOverview,
                             onChannelCardPlaced = onChannelCardPlaced,
@@ -813,6 +818,11 @@ private fun NetflixContentRow(
     startPadding: Dp,
     categoryHasMore: Boolean,
     showViewAll: Boolean,
+    topRatedByYearSelectedYear: Int,
+    currentTopRatedYear: Int,
+    isTopRatedByYearLoading: Boolean,
+    isTopRatedYearSelectorFocused: Boolean,
+    onTopRatedByYearSelected: (Int) -> Unit,
     featuredItem: MediaItem?,
     featuredOverview: String?,
     onChannelCardPlaced: (LayoutCoordinates) -> Unit,
@@ -830,8 +840,9 @@ private fun NetflixContentRow(
     val rowState = rememberLazyListState(
         prefetchStrategy = remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 3) }
     )
-    val items = remember(category.items) {
-        if (category.items.isEmpty()) {
+    val isTopRatedByYearRow = category.id == TOP_RATED_BY_YEAR_CATEGORY_ID
+    val items = remember(category.items, isTopRatedByYearLoading) {
+        if (category.items.isEmpty() && (!isTopRatedByYearRow || isTopRatedByYearLoading)) {
             (1..8).map { MediaItem(id = -it, title = "", mediaType = MediaType.MOVIE, isPlaceholder = true) }
         } else {
             navigableHomeItems(category.items)
@@ -898,22 +909,37 @@ private fun NetflixContentRow(
     val headingScale = animateFloatAsState(if (expanded) 1f else NETFLIX_RESTING_HEADING_SCALE,
         if (collapseOffScreen) snap<Float>() else tween<Float>(NETFLIX_RAIL_MORPH_MS), label = "netflixRowHeading")
     Column(modifier = Modifier.padding(bottom = bottomPadding).testTag("netflix_row_${category.id}")) {
-        Text(
-            text = localizedCategoryTitle(category),
-            style = ArflixTypography.sectionTitle.copy(
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                shadow = NetflixTextShadow
-            ),
-            color = Color.White,
-            modifier = Modifier
-                .padding(start = startPadding, bottom = 8.dp)
-                .graphicsLayer {
+        Row(
+            modifier = Modifier.padding(start = startPadding, end = startPadding, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = localizedCategoryTitle(category),
+                style = ArflixTypography.sectionTitle.copy(
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    shadow = NetflixTextShadow
+                ),
+                color = Color.White,
+                modifier = Modifier.graphicsLayer {
                     scaleX = headingScale.value
                     scaleY = headingScale.value
                     transformOrigin = TransformOrigin(0f, 1f)
                 }
-        )
+            )
+            if (isTopRatedByYearRow) {
+                TopRatedByYearSelector(
+                    selectedYear = topRatedByYearSelectedYear,
+                    currentYear = currentTopRatedYear,
+                    isFocused = isTopRatedYearSelectorFocused,
+                    onYearSelected = onTopRatedByYearSelected
+                )
+            }
+        }
+        if (isTopRatedByYearRow && items.isEmpty() && !isTopRatedByYearLoading) {
+            TopRatedByYearEmptyMessage(modifier = Modifier.padding(start = startPadding))
+        }
         LazyRow(
             state = rowState,
             modifier = Modifier.testTag("home_rail_${category.id}"),

@@ -7,6 +7,11 @@ import org.junit.Test
 class TopRatedByYearTest {
 
     @Test
+    fun defaultLimit_matchesTrendingMoviesCapacity() {
+        assertThat(TOP_RATED_BY_YEAR_ITEM_LIMIT).isEqualTo(40)
+    }
+
+    @Test
     fun rankTopRatedMoviesByYear_filtersStrictYearAndMinimumImdbVotes() {
         val candidates = listOf(
             candidate(id = 1, year = 2026, rating = "8.4", votes = 10_000),

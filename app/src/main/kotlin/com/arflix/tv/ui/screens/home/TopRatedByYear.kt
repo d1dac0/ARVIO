@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -124,7 +122,6 @@ internal fun TopRatedByYearSelector(
             expanded = menuExpanded,
             onDismissRequest = { setExpanded(false) },
             modifier = Modifier.heightIn(max = 360.dp).widthIn(min = 112.dp)
-                .verticalScroll(rememberScrollState())
         ) {
             (currentYear downTo TOP_RATED_BY_YEAR_MIN_YEAR).forEach { year ->
                 DropdownMenuItem(

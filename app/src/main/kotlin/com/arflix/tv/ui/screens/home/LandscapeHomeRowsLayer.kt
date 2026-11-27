@@ -170,6 +170,10 @@ fun LandscapeHomeRowsLayer(
             } else if (layout.compact) 176.dp else 210.dp
             val rowState = rememberLazyListState()
 
+            LaunchedEffect(topRatedByYearSelectedYear) {
+                if (category.id == TOP_RATED_BY_YEAR_CATEGORY_ID) rowState.scrollToItem(0)
+            }
+
             LaunchedEffect(rowState, category.id) {
                 snapshotFlow {
                     rowState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1

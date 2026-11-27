@@ -8,6 +8,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HomeFocusStateTest {
+    @Test fun changingTopRatedYearResetsThatRailToItsFirstMovie() {
+        val topRated = row(1, 2, 3).copy(id = TOP_RATED_BY_YEAR_CATEGORY_ID)
+        val state = HomeFocusState().apply {
+            currentItemIndex = 2
+            recordSelection(listOf(topRated))
+        }
+
+        state.resetRowToStart(TOP_RATED_BY_YEAR_CATEGORY_ID, listOf(topRated), 200)
+
+        assertEquals(0, state.currentItemIndex)
+        assertEquals(0, state.rowItemIndicesByCategoryId[TOP_RATED_BY_YEAR_CATEGORY_ID])
+        assertEquals("MOVIE-1", state.rowItemKeysByCategoryId[TOP_RATED_BY_YEAR_CATEGORY_ID])
+        assertEquals(1, state.scrollResetRequest)
+        assertEquals(200L, state.lastNavEventTime)
+    }
+
     @Test fun returnToStartClearsEveryRowAndItsTitleAnchor() {
         val rows = listOf(row(1, 2, 3).copy(id = "a"), row(4, 5, 6).copy(id = "b"))
         val state = HomeFocusState().apply {

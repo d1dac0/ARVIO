@@ -294,6 +294,17 @@ internal class HomeFocusState(
         recordSelection(categories)
     }
 
+    fun resetRowToStart(categoryId: String, categories: List<Category>, now: Long) {
+        rowItemIndicesByCategoryId[categoryId] = 0
+        rowItemKeysByCategoryId.remove(categoryId)
+        if (categories.getOrNull(currentRowIndex)?.id == categoryId) {
+            currentItemIndex = 0
+        }
+        lastNavEventTime = now
+        scrollResetRequest++
+        recordSelection(categories)
+    }
+
     /** A row's navigable items and their stable keys, reused until the row's list changes. */
     private class RowKeys(val source: List<MediaItem>, val items: List<MediaItem>, val keys: List<String>)
     private val rowKeysByCategoryId = HashMap<String, RowKeys>()
@@ -2886,6 +2897,14 @@ internal fun HomeInputLayer(
         selectDownAtMs = 0L
         focusState.returnToStart(categories, SystemClock.elapsedRealtime(), netflix?.billboardItem != null)
     }
+    val selectTopRatedYearAndReset: (Int) -> Unit = { year ->
+        focusState.resetRowToStart(
+            categoryId = TOP_RATED_BY_YEAR_CATEGORY_ID,
+            categories = categories,
+            now = SystemClock.elapsedRealtime()
+        )
+        onTopRatedByYearSelected(year)
+    }
 
     fun shortBack() {
         selectPressedInHome = false
@@ -3094,7 +3113,7 @@ internal fun HomeInputLayer(
                     when (event.key) {
                         Key.DirectionLeft, Key.DirectionRight -> {
                             val increment = if ((event.key == Key.DirectionRight) xor isRtl) 1 else -1
-                            onTopRatedByYearSelected(
+                            selectTopRatedYearAndReset(
                                 (topRatedByYearSelectedYear + increment)
                                     .coerceIn(TOP_RATED_BY_YEAR_MIN_YEAR, currentTopRatedYear)
                             )
@@ -3396,7 +3415,7 @@ internal fun HomeInputLayer(
             currentTopRatedYear = currentTopRatedYear,
             isTopRatedByYearLoading = isTopRatedByYearLoading,
             isTopRatedYearSelectorFocused = topRatedYearSelectorFocused,
-            onTopRatedByYearSelected = onTopRatedByYearSelected,
+            onTopRatedByYearSelected = selectTopRatedYearAndReset,
             smoothScrolling = smoothScrolling,
             isSlowLoading = isSlowLoading,
             onRetry = onRetry,
@@ -3682,6 +3701,10 @@ private fun MobileHomeRowsLayer(
             val rowMobileItemWidth = if (isPortrait) HOME_MOBILE_POSTER_CARD_WIDTH_DP.dp else HOME_MOBILE_LANDSCAPE_CARD_WIDTH_DP.dp
             // The keyed lazy item saves this state across disposal and navigation.
             val rowState = rememberLazyListState()
+
+            LaunchedEffect(topRatedByYearSelectedYear) {
+                if (category.id == TOP_RATED_BY_YEAR_CATEGORY_ID) rowState.scrollToItem(0)
+            }
 
             LaunchedEffect(rowState, category.id) {
                 snapshotFlow {

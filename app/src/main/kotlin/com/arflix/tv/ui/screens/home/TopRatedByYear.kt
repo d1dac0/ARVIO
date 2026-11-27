@@ -34,6 +34,9 @@ internal fun topRatedYearTabs(selectedYear: Int, currentYear: Int): List<Int> =
         .filter { it in TOP_RATED_BY_YEAR_MIN_YEAR..currentYear }
         .distinct()
 
+internal fun moveTopRatedYearCandidate(candidateYear: Int, increment: Int, currentYear: Int): Int =
+    (candidateYear + increment).coerceIn(TOP_RATED_BY_YEAR_MIN_YEAR, currentYear)
+
 internal fun withTopRatedByYearRow(
     categories: List<Category>,
     items: List<MediaItem>

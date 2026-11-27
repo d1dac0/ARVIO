@@ -979,6 +979,7 @@ private fun NetflixContentRow(
                                 width = cardWidth,
                                 height = cardHeight,
                                 showProgress = isContinueWatching,
+                                showImdbRating = isTopRatedByYearRow,
                                 trailerKey = trailerKey,
                                 trailerDelayMs = trailerDelayMs,
                                 trailerVolume = trailerVolume,
@@ -995,6 +996,7 @@ private fun NetflixContentRow(
                                 raiseOnFocus = false,
                                 showProgress = isContinueWatching,
                                 showTitle = false,
+                                showImdbRating = isTopRatedByYearRow,
                                 focusedScale = 1f,
                                 animateFocus = false,
                                 enableSystemFocus = false,
@@ -1011,6 +1013,7 @@ private fun NetflixContentRow(
                                 raiseOnFocus = false,
                                 showProgress = isContinueWatching,
                                 showTitle = false,
+                                showImdbRating = isTopRatedByYearRow,
                                 focusedScale = 1f,
                                 animateFocus = false,
                                 enableSystemFocus = false,
@@ -1185,6 +1188,7 @@ private fun NetflixFeaturedCard(
     width: Dp,
     height: Dp,
     showProgress: Boolean,
+    showImdbRating: Boolean,
     trailerKey: String?,
     trailerDelayMs: Long,
     trailerVolume: Float,
@@ -1292,6 +1296,25 @@ private fun NetflixFeaturedCard(
                                 .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(6.dp))
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                                 .testTag("netflix_continue_status_${item.mediaType}_${item.id}")
+                        )
+                    }
+                }
+                if (showImdbRating && item.imdbRating.toDoubleOrNull()?.let { it > 0.0 } == true) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp)
+                            .background(Color.Black.copy(alpha = 0.78f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 7.dp, vertical = 5.dp)
+                            .testTag("netflix_imdb_${item.mediaType}_${item.id}")
+                    ) {
+                        ImdbSvgRatingBadge(
+                            rating = item.imdbRating,
+                            imageLoader = context.imageLoader,
+                            ratingFontSize = 12,
+                            logoWidth = 27.dp,
+                            logoHeight = 13.dp,
+                            textShadow = NetflixTextShadow
                         )
                     }
                 }

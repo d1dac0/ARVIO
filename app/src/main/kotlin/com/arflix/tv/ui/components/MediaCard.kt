@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import coil.imageLoader
 import coil.request.ImageRequest
 import coil.size.Precision
 import coil.size.Scale
@@ -94,6 +95,7 @@ fun MediaCard(
     showProgress: Boolean = false,
     showTitle: Boolean = true,
     showSubtitle: Boolean = true,
+    showImdbRating: Boolean = false,
     titleMaxLines: Int = 1,
     titleMinLines: Int = 1,
     subtitleMaxLines: Int = 1,
@@ -383,6 +385,26 @@ fun MediaCard(
                             .padding(bottom = 6.dp, end = 6.dp)
                             .testTag("media_watched_${item.mediaType}_${item.id}")
                     )
+                }
+
+                if (showImdbRating && item.imdbRating.toDoubleOrNull()?.let { it > 0.0 } == true) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(7.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Black.copy(alpha = 0.78f))
+                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                            .testTag("media_imdb_${item.mediaType}_${item.id}")
+                    ) {
+                        ImdbSvgRatingBadge(
+                            rating = item.imdbRating,
+                            imageLoader = context.imageLoader,
+                            ratingFontSize = 11,
+                            logoWidth = 24.dp,
+                            logoHeight = 12.dp
+                        )
+                    }
                 }
 
                 // Subtle playback progress bar for Continue Watching.

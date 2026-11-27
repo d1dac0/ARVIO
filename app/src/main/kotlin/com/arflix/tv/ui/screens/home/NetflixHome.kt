@@ -313,6 +313,11 @@ internal fun NetflixTvHomeRowsLayer(
     focusState: HomeFocusState,
     contentStartPadding: Dp,
     categoryHasMoreMap: Map<String, Boolean>,
+    topRatedByYearSelectedYear: Int,
+    currentTopRatedYear: Int,
+    isTopRatedByYearLoading: Boolean,
+    isTopRatedYearSelectorFocused: Boolean,
+    onTopRatedByYearSelected: (Int) -> Unit,
     smoothScrolling: Boolean,
     onLoadMoreCategory: (String) -> Unit,
     onViewAllCategory: (String) -> Unit,
@@ -445,7 +450,7 @@ internal fun NetflixTvHomeRowsLayer(
                     val onRowViewAll = remember(category.id) { { onViewAllCategory(category.id) } }
                     val rowUsePosterCards =
                         rememberCatalogueRowLayoutMode("home:${category.id}") == CardLayoutMode.POSTER
-                    if (netflixRowIsSpecial(category, isSpecialItem)) {
+                    if (category.id == TOP_RATED_BY_YEAR_CATEGORY_ID || netflixRowIsSpecial(category, isSpecialItem)) {
                         // Channel, service and sports tiles have no backdrop/overview to
                         // expand into: they keep the classic rail.
                         Box(
@@ -462,6 +467,11 @@ internal fun NetflixTvHomeRowsLayer(
                                 usePosterCards = rowUsePosterCards,
                                 startPadding = contentStartPadding,
                                 categoryHasMore = rowHasMore,
+                                topRatedByYearSelectedYear = topRatedByYearSelectedYear,
+                                currentTopRatedYear = currentTopRatedYear,
+                                isTopRatedByYearLoading = isTopRatedByYearLoading,
+                                isTopRatedYearSelectorFocused = rowIsFocused && isTopRatedYearSelectorFocused,
+                                onTopRatedByYearSelected = onTopRatedByYearSelected,
                                 smoothScrolling = smoothScrolling,
                                 onLoadMore = onRowLoadMore,
                                 showViewAll = viewAllIndex >= 0,

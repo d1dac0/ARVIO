@@ -1079,6 +1079,9 @@
     <string name="details_cd_season_options">Show season options</string>
     <string name="home_top10_movies_today">Top 10 Movies Today</string>
     <string name="home_top10_shows_today">Top 10 Shows Today</string>
+    <string name="home_top_rated_by_year">Top Rated by Year</string>
+    <string name="home_top_rated_by_year_selector">Select release year</string>
+    <string name="home_top_rated_by_year_empty">No movies with at least 10,000 IMDb votes were found for this year.</string>
     <string name="home_favorite_tv">Favorite TV</string>
     <string name="home_sports">Sports</string>
     <string name="home_popular_live_sports">Popular Live Sports</string>

@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -79,6 +80,10 @@ fun LandscapeHomeRowsLayer(
     onViewAllCategory: (String) -> Unit = {},
     onCategoryVisiblePosition: (String, Int) -> Unit = { _, _ -> },
     categoryHasMoreMap: Map<String, Boolean> = emptyMap(),
+    topRatedByYearSelectedYear: Int,
+    currentTopRatedYear: Int,
+    isTopRatedByYearLoading: Boolean,
+    onTopRatedByYearSelected: (Int) -> Unit,
     isSlowLoading: Boolean = false,
     onRetry: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -206,9 +211,19 @@ fun LandscapeHomeRowsLayer(
                                 blurRadius = 4f
                             )
                         ),
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = if (category.id == TOP_RATED_BY_YEAR_CATEGORY_ID) Modifier.weight(1f) else Modifier
                     )
-                    if (showViewAll) {
+                    if (category.id == TOP_RATED_BY_YEAR_CATEGORY_ID) {
+                        TopRatedByYearSelector(
+                            selectedYear = topRatedByYearSelectedYear,
+                            currentYear = currentTopRatedYear,
+                            isFocused = false,
+                            onYearSelected = onTopRatedByYearSelected
+                        )
+                    } else if (showViewAll) {
                         Spacer(modifier = Modifier.weight(1f))
                         Text(
                             text = stringResource(R.string.home_view_all),
@@ -227,9 +242,15 @@ fun LandscapeHomeRowsLayer(
                 } else {
                     rowUsePosterCards
                 }
-                val isRowSkeleton = category.items.isEmpty() || category.items.all { it.isPlaceholder }
+                val isTopRatedByYearRow = category.id == TOP_RATED_BY_YEAR_CATEGORY_ID
+                val isRowSkeleton = (category.items.isEmpty() && (!isTopRatedByYearRow || isTopRatedByYearLoading)) ||
+                    category.items.all { it.isPlaceholder }
 
-                if (isRowSkeleton) {
+                if (isTopRatedByYearRow && category.items.isEmpty() && !isTopRatedByYearLoading) {
+                    TopRatedByYearEmptyMessage(
+                        modifier = Modifier.padding(start = contentStartPadding, end = 24.dp)
+                    )
+                } else if (isRowSkeleton) {
                     LazyRow(
                         state = rowState,
                         modifier = Modifier.arvioDpadFocusGroup(),

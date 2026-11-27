@@ -6,6 +6,14 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
 class TopRatedByYearUiTest {
+    @Test
+    fun yearCandidateMovesWithoutApplyingRepositorySelection() {
+        assertThat(moveTopRatedYearCandidate(2026, -1, 2026)).isEqualTo(2025)
+        assertThat(moveTopRatedYearCandidate(2025, 1, 2026)).isEqualTo(2026)
+        assertThat(moveTopRatedYearCandidate(2026, 1, 2026)).isEqualTo(2026)
+        assertThat(moveTopRatedYearCandidate(1890, -1, 2026)).isEqualTo(1890)
+    }
+
 
     @Test
     fun topRatedYearTabs_staysInsideSupportedRange() {
